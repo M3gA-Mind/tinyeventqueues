@@ -32,13 +32,13 @@ tinyeventqueues-bus = { path = "crates/tinyeventqueues-bus" }
 # TinyBus defines the message types, interface macro, and frozen module ABI
 # used by the generated integration. Socket and CLI features are unnecessary
 # here.
-tinybus = { path = "vendor/tinybus/crates/tinybus", version = "0.1.0", default-features = false, features = [
+tinybus = { version = ">=0.1.3, <0.2", default-features = false, features = [
     "macros",
     "modules",
 ] }
 # The module-side SDK owns the isolated runtime and exports the ABI entrypoints
 # required by TinyBus's dynamic loader.
-tinybus-module = { path = "vendor/tinybus/crates/tinybus-module", version = "0.1.0" }
+tinybus-module = ">=0.1.3, <0.2"
 # Derive macros for the crate-wide error type in
 # `crates/tinyeventqueues/src/error/`.
 thiserror = "2"
@@ -53,13 +53,22 @@ serde_json = "1"
 # Pinned to the tinyhumansai main revision that merged the queue port
 # (tinyhumansai/tinystoragedrivers#71, #72, #73).
 tinystoragedrivers-core = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "0c6dcfce57201fadd830431f36fd759c3baa897a" }
+# The module side of the storage bus: `connect_storage` reaches the host's
+# `Storage` objects (documents and queues) for the one scope the host bound
+# this module to. Same pin as the core crate.
+tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "0c6dcfce57201fadd830431f36fd759c3baa897a" }
+# Test-only: serves the storage objects on an in-memory broker so the module's
+# storage path is exercised over the real bus.
+tinystoragedrivers-client = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "0c6dcfce57201fadd830431f36fd759c3baa897a" }
+# Module diagnostics; the host installs the logger.
+log = "0.4"
 # The host-callback trait (`Host`) is an async trait object.
 async-trait = "0.1"
 # Strict config loading: names the JSON path of the field that failed to
 # decode, so an error in `pipeline.json` points at the offending field.
 serde_path_to_error = "0.1"
 # Module integration tests exercise the real asynchronous in-memory TinyBus.
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 # Lints apply to every member that opts in with `[lints] workspace = true`, and
 # to every target of that member. CI runs clippy with `-D warnings`, so anything
@@ -91,6 +100,19 @@ must_use_candidate = "warn"
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
 private_intra_doc_links = "warn"
+
+# tinybus is not on crates.io: the crates name it by version range so a host
+# that links this module (OpenHuman's `linked` mode) unifies it with its own
+# copy, and standalone builds resolve it to the nested checkout. The storage
+# bus crates name tinybus by git; that source is redirected to the same copy so
+# the graph holds exactly one `tinybus`.
+[patch.crates-io]
+tinybus = { path = "vendor/tinybus/crates/tinybus" }
+tinybus-module = { path = "vendor/tinybus/crates/tinybus-module" }
+tinybus-macros = { path = "vendor/tinybus/crates/tinybus-macros" }
+
+[patch."https://github.com/tinyhumansai/tinybus"]
+tinybus = { path = "vendor/tinybus/crates/tinybus" }
 
 [profile.release]
 # Cross-crate optimization and smaller, faster binaries for release builds.
