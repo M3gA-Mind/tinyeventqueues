@@ -56,8 +56,9 @@ pub mod outcome;
 pub mod version;
 
 pub use config::{
-    AckPolicy, AmbientConfig, BotLoopConfig, CoalesceConfig, DeadLetterConfig, GateConfig,
-    IngressConfig, Lane, LaneConfig, LanesConfig, PipelineConfig, RateLimit, RateLimits,
+    AckPolicy, AmbientConfig, Borderline, BotLoopConfig, CoalesceConfig, DeadLetterConfig,
+    DigestConfig, GateConfig, HabituationConfig, IngressConfig, Lane, LaneConfig, LanesConfig,
+    PipelineConfig, RateLimit, RateLimits, SalienceConfig, SalienceThresholds, SalienceWeights,
     SourcePolicy,
 };
 pub use event::{EventKind, EventRef, InboundEvent, MediaRef, PayloadRef, Sender};
