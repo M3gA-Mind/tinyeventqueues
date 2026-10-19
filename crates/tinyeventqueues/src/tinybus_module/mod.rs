@@ -155,7 +155,10 @@ async fn setup(connection: Connection, config: serde_json::Value, slot: Slot) ->
 // process-wide statics. The pass timer lives in a slot the setup factory
 // captures per instance, so another module linked into the same executable
 // (or a second instance) can neither observe nor stop it.
-#[allow(missing_docs, unreachable_pub)]
+#[allow(
+    missing_docs,
+    reason = "the export macro emits the ABI descriptor, manifest and init entry points without doc comments; nothing else may live in this module"
+)]
 pub(crate) mod exports {
     tinybus_module::module_export_optional_static! {
         setup_factory = super::setup_factory,
