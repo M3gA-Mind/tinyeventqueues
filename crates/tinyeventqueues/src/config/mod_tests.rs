@@ -125,7 +125,31 @@ fn wrong_types_and_missing_fields_are_named() {
 #[test]
 fn out_of_range_values_are_named() {
     type Break = fn(&mut Value);
-    let cases: [(&str, Break); 6] = [
+    let cases: [(&str, Break); 14] = [
+        ("gate.allow_senders[0]", |v| {
+            v["gate"]["allow_senders"] = json!([""]);
+        }),
+        ("gate.deny_senders[1]", |v| {
+            v["gate"]["deny_senders"] = json!(["a", ""]);
+        }),
+        ("gate.bot_loop.max_events", |v| {
+            v["gate"]["bot_loop"]["max_events"] = json!(0);
+        }),
+        ("gate.bot_loop.window_ms", |v| {
+            v["gate"]["bot_loop"]["window_ms"] = json!(0);
+        }),
+        ("gate.rate_limits.per_sender.capacity", |v| {
+            v["gate"]["rate_limits"]["per_sender"]["capacity"] = json!(0);
+        }),
+        ("gate.rate_limits.per_source.refill_per_minute", |v| {
+            v["gate"]["rate_limits"]["per_source"]["refill_per_minute"] = json!(0);
+        }),
+        ("gate.ambient.max_items", |v| {
+            v["gate"]["ambient"]["max_items"] = json!(0);
+        }),
+        ("coalesce.control_prefixes[0]", |v| {
+            v["coalesce"]["control_prefixes"] = json!([""]);
+        }),
         ("version", |v| {
             v["version"] = json!(2);
         }),

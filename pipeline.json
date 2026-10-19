@@ -10,16 +10,77 @@
     "queue": "teq.dead"
   },
   "lanes": {
-    "interactive": { "queue": "teq.lane.interactive", "concurrency": 8 },
-    "actionable": { "queue": "teq.lane.actionable", "concurrency": 4 },
-    "background": { "queue": "teq.lane.background", "concurrency": 2 },
-    "digest": { "queue": "teq.lane.digest", "concurrency": 1 }
+    "interactive": {
+      "queue": "teq.lane.interactive",
+      "concurrency": 8
+    },
+    "actionable": {
+      "queue": "teq.lane.actionable",
+      "concurrency": 4
+    },
+    "background": {
+      "queue": "teq.lane.background",
+      "concurrency": 2
+    },
+    "digest": {
+      "queue": "teq.lane.digest",
+      "concurrency": 1
+    }
   },
   "sources": [
-    { "match": "web:*", "ack": "after_ingest" },
-    { "match": "channel:*", "ack": "after_ingest" },
-    { "match": "composio:*", "ack": "after_ingest" },
-    { "match": "webhook:*", "ack": "after_ingest" },
-    { "match": "*", "ack": "after_ingest" }
-  ]
+    {
+      "match": "web:*",
+      "ack": "after_ingest"
+    },
+    {
+      "match": "channel:*",
+      "ack": "after_ingest"
+    },
+    {
+      "match": "composio:*",
+      "ack": "after_ingest"
+    },
+    {
+      "match": "webhook:*",
+      "ack": "after_ingest"
+    },
+    {
+      "match": "*",
+      "ack": "after_ingest"
+    }
+  ],
+  "gate": {
+    "allow_senders": [],
+    "deny_senders": [],
+    "direct_messages": true,
+    "groups": true,
+    "bot_loop": {
+      "max_events": 20,
+      "window_ms": 60000
+    },
+    "rate_limits": {
+      "per_sender": {
+        "capacity": 30,
+        "refill_per_minute": 30
+      },
+      "per_conversation": {
+        "capacity": 120,
+        "refill_per_minute": 120
+      },
+      "per_source": {
+        "capacity": 600,
+        "refill_per_minute": 600
+      }
+    },
+    "ambient": {
+      "max_items": 50
+    }
+  },
+  "coalesce": {
+    "debounce_ms": 1500,
+    "max_wait_ms": 10000,
+    "control_prefixes": [
+      "/"
+    ]
+  }
 }

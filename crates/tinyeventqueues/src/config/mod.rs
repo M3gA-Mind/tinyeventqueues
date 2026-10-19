@@ -150,6 +150,15 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
             ));
         }
     }
+    check_gate(config)?;
+    for (index, prefix) in config.coalesce.control_prefixes.iter().enumerate() {
+        if prefix.is_empty() {
+            return Err(Error::config(
+                format!("coalesce.control_prefixes[{index}]"),
+                "must not be empty",
+            ));
+        }
+    }
     for (index, source) in config.sources.iter().enumerate() {
         let pattern = source.pattern.as_str();
         let body = pattern.strip_suffix('*').unwrap_or(pattern);
@@ -159,6 +168,63 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
                 "must be a source, a prefix ending in `*`, or `*`",
             ));
         }
+    }
+    Ok(())
+}
+
+/// The most ambient events kept per conversation.
+const MAX_AMBIENT_ITEMS: u32 = 10_000;
+
+fn check_gate(config: &PipelineConfig) -> Result<()> {
+    let gate = &config.gate;
+    for (list, entries) in [
+        ("allow_senders", &gate.allow_senders),
+        ("deny_senders", &gate.deny_senders),
+    ] {
+        if let Some(index) = entries.iter().position(String::is_empty) {
+            return Err(Error::config(
+                format!("gate.{list}[{index}]"),
+                "must not be empty",
+            ));
+        }
+    }
+    if gate.bot_loop.max_events == 0 {
+        return Err(Error::config(
+            "gate.bot_loop.max_events",
+            "must be at least 1",
+        ));
+    }
+    if gate.bot_loop.window_ms == 0 {
+        return Err(Error::config(
+            "gate.bot_loop.window_ms",
+            "must be at least 1",
+        ));
+    }
+    let limits = &gate.rate_limits;
+    for (scope, limit) in [
+        ("per_sender", limits.per_sender),
+        ("per_conversation", limits.per_conversation),
+        ("per_source", limits.per_source),
+    ] {
+        let Some(limit) = limit else { continue };
+        if limit.capacity == 0 {
+            return Err(Error::config(
+                format!("gate.rate_limits.{scope}.capacity"),
+                "must be at least 1",
+            ));
+        }
+        if limit.refill_per_minute == 0 {
+            return Err(Error::config(
+                format!("gate.rate_limits.{scope}.refill_per_minute"),
+                "must be at least 1",
+            ));
+        }
+    }
+    if !(1..=MAX_AMBIENT_ITEMS).contains(&gate.ambient.max_items) {
+        return Err(Error::config(
+            "gate.ambient.max_items",
+            format!("must be 1 to {MAX_AMBIENT_ITEMS}"),
+        ));
     }
     Ok(())
 }

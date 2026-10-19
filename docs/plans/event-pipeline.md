@@ -30,7 +30,10 @@ wire the module to their storage in a later change.
 
 ## 2. Gate, rate limits, coalesce
 
-- `gate` and `coalesce` sections in `pipeline.json`.
+- `gate` and `coalesce` sections in `pipeline.json`. Until salience lands, a
+  flushed batch goes to `interactive` when any event is direct, addressed or
+  a mention, otherwise to `actionable`; rate-limited events spill to `digest`
+  as single-event turns (folding comes with the digest work).
 - Tests first: self-echo, deny/allow lists, DM/group policy, bot-loop guard,
   token buckets surviving a restart, `context` outcome for unaddressed chatter;
   no cross-thread merge, per-key order, media and control flush, edit/delete
@@ -58,7 +61,7 @@ wire the module to their storage in a later change.
 ## Completion checklist
 
 - [x] 1. De-template, contract, ingress
-- [ ] 2. Gate, rate limits, coalesce
+- [x] 2. Gate, rate limits, coalesce
 - [ ] 3. Salience, habituation, lanes, digest spill
 - [ ] 4. Cadence scheduler, budgets, overflow folding
 - [ ] 5. Dispatch, retry, dead letters, property and flood tests

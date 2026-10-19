@@ -32,6 +32,12 @@ pub(crate) const OUTCOMES: &str = "teq.outcomes";
 pub(crate) const TOMBSTONES: &str = "teq.tombstones";
 /// Dead letters already copied back to their origin by a redrive.
 pub(crate) const REDRIVEN: &str = "teq.redriven";
+/// Token buckets and bot-loop windows.
+pub(crate) const BUCKETS: &str = "teq.buckets";
+/// Ambient context per conversation.
+pub(crate) const AMBIENT: &str = "teq.ambient";
+/// The debounce buffer.
+pub(crate) const COALESCE: &str = "teq.coalesce";
 
 /// The collections the pipeline uses, with their indexes.
 pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
@@ -41,6 +47,11 @@ pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
             .index(IndexSpec::new("by_expiry", ["expires_ms"])),
         CollectionSpec::new(TOMBSTONES).index(IndexSpec::new("by_expiry", ["expires_ms"])),
         CollectionSpec::new(REDRIVEN),
+        CollectionSpec::new(BUCKETS),
+        CollectionSpec::new(AMBIENT),
+        CollectionSpec::new(COALESCE)
+            .index(IndexSpec::new("by_due", ["due_ms"]))
+            .index(IndexSpec::new("by_thread", ["thread_group"])),
     ]
 }
 
