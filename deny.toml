@@ -49,8 +49,5 @@ deny = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# The queue port of tinystoragedrivers lands in tinyhumansai/tinystoragedrivers#71;
-# until it merges, `tinystoragedrivers-core` is pinned to the fork branch that
-# carries it. Remove this entry when the root manifest is re-pinned to a
-# tinyhumansai revision.
-allow-git = ["https://github.com/senamakel/tinystoragedrivers"]
+# tinystoragedrivers is consumed from git at a pinned tinyhumansai revision.
+allow-git = ["https://github.com/tinyhumansai/tinystoragedrivers"]

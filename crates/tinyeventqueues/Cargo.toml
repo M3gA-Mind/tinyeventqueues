@@ -33,6 +33,9 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+# The queue conformance suite (`conformance::run_queue`) checks the broker
+# test double behaves like a real queue backend.
+tinystoragedrivers-core = { workspace = true, features = ["testkit"] }
 # The release verifier passes an explicit empty module configuration, and the
 # tests build JSON fixtures.
 serde_json = { workspace = true }

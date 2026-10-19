@@ -751,7 +751,7 @@ dependencies = [
 [[package]]
 name = "tinystoragedrivers-core"
 version = "1.0.0"
-source = "git+https://github.com/senamakel/tinystoragedrivers?branch=feat%2Fqueue-store#15f1bb6efbd5cc712b42a926e19f299d5337eea9"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=0c6dcfce57201fadd830431f36fd759c3baa897a#0c6dcfce57201fadd830431f36fd759c3baa897a"
 dependencies = [
  "async-trait",
  "data-encoding",
@@ -767,7 +767,7 @@ dependencies = [
 [[package]]
 name = "tinystoragedrivers-schema"
 version = "1.0.0"
-source = "git+https://github.com/senamakel/tinystoragedrivers?branch=feat%2Fqueue-store#15f1bb6efbd5cc712b42a926e19f299d5337eea9"
+source = "git+https://github.com/tinyhumansai/tinystoragedrivers?rev=0c6dcfce57201fadd830431f36fd759c3baa897a#0c6dcfce57201fadd830431f36fd759c3baa897a"
 dependencies = [
  "serde",
  "serde_json",
