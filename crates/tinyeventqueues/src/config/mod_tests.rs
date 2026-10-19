@@ -125,7 +125,50 @@ fn wrong_types_and_missing_fields_are_named() {
 #[test]
 fn out_of_range_values_are_named() {
     type Break = fn(&mut Value);
-    let cases: [(&str, Break); 14] = [
+    let cases: [(&str, Break); 29] = [
+        ("lanes.digest.max_backlog", |v| {
+            v["lanes"]["digest"]["max_backlog"] = json!(0);
+        }),
+        ("sources[0].weight", |v| {
+            v["sources"][0]["weight"] = json!(101);
+        }),
+        ("salience.weights.keyword", |v| {
+            v["salience"]["weights"]["keyword"] = json!(101);
+        }),
+        ("salience.keywords[0]", |v| {
+            v["salience"]["keywords"] = json!([""]);
+        }),
+        ("salience.known_contacts[0]", |v| {
+            v["salience"]["known_contacts"] = json!([""]);
+        }),
+        ("salience.thresholds.interactive", |v| {
+            v["salience"]["thresholds"]["interactive"] = json!(101);
+        }),
+        ("salience.thresholds.actionable", |v| {
+            v["salience"]["thresholds"]["actionable"] = json!(90);
+        }),
+        ("salience.thresholds.background", |v| {
+            v["salience"]["thresholds"]["background"] = json!(50);
+        }),
+        ("salience.borderline", |v| {
+            v["salience"]["borderline"]["low"] = json!(60);
+        }),
+        ("salience.habituation.window", |v| {
+            v["salience"]["habituation"]["window"] = json!(0);
+        }),
+        ("salience.habituation.window_ms", |v| {
+            v["salience"]["habituation"]["window_ms"] = json!(0);
+        }),
+        ("salience.habituation.max_distance", |v| {
+            v["salience"]["habituation"]["max_distance"] = json!(65);
+        }),
+        ("salience.habituation.decay_percent", |v| {
+            v["salience"]["habituation"]["decay_percent"] = json!(101);
+        }),
+        ("digest.max_items", |v| v["digest"]["max_items"] = json!(0)),
+        ("digest.max_wait_ms", |v| {
+            v["digest"]["max_wait_ms"] = json!(0);
+        }),
         ("gate.allow_senders[0]", |v| {
             v["gate"]["allow_senders"] = json!([""]);
         }),

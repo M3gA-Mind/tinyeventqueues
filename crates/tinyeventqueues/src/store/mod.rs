@@ -38,6 +38,10 @@ pub(crate) const BUCKETS: &str = "teq.buckets";
 pub(crate) const AMBIENT: &str = "teq.ambient";
 /// The debounce buffer.
 pub(crate) const COALESCE: &str = "teq.coalesce";
+/// Habituation fingerprints per source.
+pub(crate) const HABITUATION: &str = "teq.habituation";
+/// The digest accumulator.
+pub(crate) const DIGEST: &str = "teq.digest";
 
 /// The collections the pipeline uses, with their indexes.
 pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
@@ -49,6 +53,8 @@ pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
         CollectionSpec::new(REDRIVEN),
         CollectionSpec::new(BUCKETS),
         CollectionSpec::new(AMBIENT),
+        CollectionSpec::new(HABITUATION),
+        CollectionSpec::new(DIGEST),
         CollectionSpec::new(COALESCE)
             .index(IndexSpec::new("by_due", ["due_ms"]))
             .index(IndexSpec::new("by_thread", ["thread_group"])),

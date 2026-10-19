@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use tinyeventqueues_bus::{
-    Disposition, EventKind, EventRef, InboundEvent, Lane, MediaRef, RateLimit, Reason, Sender,
+    Disposition, EventKind, EventRef, InboundEvent, Lane, MediaRef, RateLimit, Reason,
+    SalienceClass, Sender,
 };
 use tinystoragedrivers_core::queue::NewMessage;
 
@@ -179,10 +180,13 @@ async fn rate_limited_events_spill_to_the_digest_lane() {
         .await
         .unwrap();
     pipeline.drain().await.unwrap();
+    let early = take_turns(&fixture, &pipeline, Lane::Digest).await;
+    assert_eq!(early.len(), 0, "{early:?}");
+    fixture.clock.advance(pipeline.config().digest.max_wait_ms);
+    pipeline.drain().await.unwrap();
     let digest = take_turns(&fixture, &pipeline, Lane::Digest).await;
     assert_eq!(digest.len(), 1);
     assert_eq!(ids(&digest[0].events), ["2"]);
-    assert_eq!(digest[0].reason, Reason::RateLimited);
     assert!(
         sink.outcomes()
             .iter()
@@ -218,20 +222,218 @@ async fn a_delete_before_delivery_retracts_the_message() {
 }
 
 #[tokio::test]
-async fn unaddressed_work_goes_to_the_actionable_lane() {
+async fn salience_picks_the_lane() {
     let fixture = Fixture::new();
-    let pipeline = fixture.pipeline().await;
-    let mut trigger = event("composio:github", "1", "repo");
-    trigger.kind = EventKind::Trigger;
-    pipeline.ingest(vec![trigger]).await.unwrap();
+    let mut config = shipped_pipeline_config().unwrap();
+    config.salience.keywords = vec!["failed".into()];
+    let pipeline = fixture.builder().config(config).build().await.unwrap();
+    let trigger = |id: &str, conversation: &str, text: &str| {
+        let mut event = event("composio:github", id, conversation).text(text);
+        event.kind = EventKind::Trigger;
+        event
+    };
+    pipeline
+        .ingest(vec![
+            trigger("1", "ci", "build failed on main"),
+            trigger("2", "stars", "someone starred the repo"),
+            mention("3", "chat"),
+        ])
+        .await
+        .unwrap();
+    pipeline.drain().await.unwrap();
+    fixture.clock.advance(10_000);
+    pipeline.drain().await.unwrap();
+    let lane_of = |turns: &[crate::turn::PendingTurn]| {
+        turns
+            .iter()
+            .map(|t| t.conversation_key.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        lane_of(&take_turns(&fixture, &pipeline, Lane::Interactive).await),
+        ["chat"]
+    );
+    assert_eq!(
+        lane_of(&take_turns(&fixture, &pipeline, Lane::Actionable).await),
+        ["ci"]
+    );
+    assert_eq!(
+        lane_of(&take_turns(&fixture, &pipeline, Lane::Background).await),
+        ["stars"]
+    );
+}
+
+#[tokio::test]
+async fn a_source_that_keeps_repeating_itself_fades_into_the_digest() {
+    let fixture = Fixture::new();
+    let sink = Arc::new(CollectingSink::new());
+    let pipeline = fixture.builder().sink(sink.clone()).build().await.unwrap();
+    for i in 0..4 {
+        let mut ping = event("monitor:disk", &i.to_string(), &format!("alert-{i}"))
+            .text("disk usage above 90 percent on host 7");
+        ping.kind = EventKind::Notification;
+        ping.received_at_ms = fixture.clock.now();
+        pipeline.ingest(vec![ping]).await.unwrap();
+        pipeline.drain().await.unwrap();
+        fixture.clock.advance(2_000);
+        pipeline.drain().await.unwrap();
+    }
+    // 25, then 15, then 9 and 5: two repeats fall below the background
+    // threshold and fade into the digest.
+    assert_eq!(
+        take_turns(&fixture, &pipeline, Lane::Background)
+            .await
+            .len(),
+        2
+    );
+    let habituated = sink
+        .outcomes()
+        .into_iter()
+        .filter(|o| o.reason == Reason::Habituated)
+        .count();
+    assert_eq!(habituated, 2);
+}
+
+#[tokio::test]
+async fn a_full_lane_spills_to_the_digest_instead_of_dropping() {
+    let fixture = Fixture::new();
+    let sink = Arc::new(CollectingSink::new());
+    let mut config = shipped_pipeline_config().unwrap();
+    config.lanes.interactive.max_backlog = 2;
+    let pipeline = fixture
+        .builder()
+        .config(config)
+        .sink(sink.clone())
+        .build()
+        .await
+        .unwrap();
+    let events: Vec<_> = (0..5)
+        .map(|i| mention(&i.to_string(), &format!("c{i}")))
+        .collect();
+    pipeline.ingest(events).await.unwrap();
     pipeline.drain().await.unwrap();
     fixture.clock.advance(10_000);
     pipeline.drain().await.unwrap();
     assert_eq!(
-        take_turns(&fixture, &pipeline, Lane::Actionable)
+        take_turns(&fixture, &pipeline, Lane::Interactive)
+            .await
+            .len(),
+        2
+    );
+    let overflow = sink
+        .outcomes()
+        .into_iter()
+        .filter(|o| o.reason == Reason::LaneOverflow)
+        .count();
+    assert_eq!(overflow, 3);
+    fixture.clock.advance(600_000);
+    pipeline.drain().await.unwrap();
+    let digest = take_turns(&fixture, &pipeline, Lane::Digest).await;
+    assert_eq!(digest[0].events.len(), 3);
+}
+
+#[derive(Debug)]
+struct Classifier(SalienceClass, std::sync::atomic::AtomicU32);
+
+#[async_trait::async_trait]
+impl crate::Host for Classifier {
+    async fn classify_salience(
+        &self,
+        _request: tinyeventqueues_bus::ClassifySalienceRequest,
+    ) -> crate::Result<tinyeventqueues_bus::ClassifySalienceResponse> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.0 == SalienceClass::Noise {
+            return Err(crate::Error::Host {
+                method: "ClassifySalience",
+                message: "down".into(),
+            });
+        }
+        Ok(tinyeventqueues_bus::ClassifySalienceResponse::new(self.0))
+    }
+}
+
+#[tokio::test]
+async fn borderline_scores_are_classified_by_the_host_within_budget() {
+    let fixture = Fixture::new();
+    let host = Arc::new(Classifier(
+        SalienceClass::Urgent,
+        std::sync::atomic::AtomicU32::new(0),
+    ));
+    let mut config = shipped_pipeline_config().unwrap();
+    config.salience.borderline = Some(tinyeventqueues_bus::Borderline::new(20, 30, 2));
+    let pipeline = fixture
+        .builder()
+        .config(config)
+        .host(host.clone())
+        .build()
+        .await
+        .unwrap();
+    // Plain chatter in a DM-less group scores 25: borderline. Triggers pass the gate.
+    let events: Vec<_> = (0..3)
+        .map(|i| {
+            let mut e = event("composio:x", &i.to_string(), &format!("t{i}"));
+            e.kind = EventKind::Trigger;
+            e
+        })
+        .collect();
+    pipeline.ingest(events).await.unwrap();
+    pipeline.drain().await.unwrap();
+    fixture.clock.advance(10_000);
+    pipeline.drain().await.unwrap();
+    assert_eq!(host.1.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        take_turns(&fixture, &pipeline, Lane::Interactive)
+            .await
+            .len(),
+        2
+    );
+    assert_eq!(
+        take_turns(&fixture, &pipeline, Lane::Background)
             .await
             .len(),
         1
+    );
+}
+
+#[tokio::test]
+async fn a_failing_classifier_leaves_the_rule_score_standing() {
+    let fixture = Fixture::new();
+    let host = Arc::new(Classifier(
+        SalienceClass::Noise,
+        std::sync::atomic::AtomicU32::new(0),
+    ));
+    let mut config = shipped_pipeline_config().unwrap();
+    config.salience.borderline = Some(tinyeventqueues_bus::Borderline::new(20, 30, 0));
+    let pipeline = fixture
+        .builder()
+        .config(config.clone())
+        .host(host.clone())
+        .build()
+        .await
+        .unwrap();
+    let mut trigger = event("composio:x", "1", "t");
+    trigger.kind = EventKind::Trigger;
+    pipeline.ingest(vec![trigger.clone()]).await.unwrap();
+    pipeline.drain().await.unwrap();
+    fixture.clock.advance(10_000);
+    pipeline.drain().await.unwrap();
+    // A zero budget never calls the host.
+    assert_eq!(host.1.load(std::sync::atomic::Ordering::SeqCst), 0);
+    config.salience.borderline = Some(tinyeventqueues_bus::Borderline::new(20, 30, 10));
+    pipeline.configure(config).unwrap();
+    trigger = event("composio:x", "2", "t");
+    trigger.kind = EventKind::Trigger;
+    trigger.received_at_ms = fixture.clock.now();
+    pipeline.ingest(vec![trigger]).await.unwrap();
+    pipeline.drain().await.unwrap();
+    fixture.clock.advance(10_000);
+    pipeline.drain().await.unwrap();
+    assert_eq!(host.1.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(
+        take_turns(&fixture, &pipeline, Lane::Background)
+            .await
+            .len(),
+        2
     );
 }
 

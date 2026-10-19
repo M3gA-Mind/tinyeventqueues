@@ -13,8 +13,9 @@
 mod types;
 
 pub use types::{
-    AckPolicy, AmbientConfig, BotLoopConfig, CoalesceConfig, DeadLetterConfig, GateConfig,
-    IngressConfig, Lane, LaneConfig, LanesConfig, PipelineConfig, RateLimit, RateLimits,
+    AckPolicy, AmbientConfig, Borderline, BotLoopConfig, CoalesceConfig, DeadLetterConfig,
+    DigestConfig, GateConfig, HabituationConfig, IngressConfig, Lane, LaneConfig, LanesConfig,
+    PipelineConfig, RateLimit, RateLimits, SalienceConfig, SalienceThresholds, SalienceWeights,
     SourcePolicy,
 };
 

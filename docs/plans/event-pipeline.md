@@ -41,7 +41,12 @@ in a later change.
 
 ## 3. Salience, habituation, lanes, digest spill
 
-- `salience` section; `ClassifySalience` through a `Host` trait.
+- `salience` and `digest` sections and per-lane `max_backlog`;
+  `ClassifySalience` through a `Host` trait. A batch's score is its best
+  event's score; noise (below the background threshold) folds into the
+  digest with `noise` or `habituated`, a lane at `max_backlog` spills with
+  `lane_overflow`, and the digest accumulator releases one turn per
+  `max_items` events or `max_wait_ms`.
 - Tests first: rule scores, SimHash habituation decay, borderline-only
   classification within budget, lane assignment, overflow spilling to digest.
 
@@ -62,6 +67,6 @@ in a later change.
 
 - [x] 1. De-template, contract, ingress
 - [x] 2. Gate, rate limits, coalesce
-- [ ] 3. Salience, habituation, lanes, digest spill
+- [x] 3. Salience, habituation, lanes, digest spill
 - [ ] 4. Cadence scheduler, budgets, overflow folding
 - [ ] 5. Dispatch, retry, dead letters, property and flood tests

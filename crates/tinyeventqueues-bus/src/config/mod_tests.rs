@@ -133,3 +133,39 @@ fn rate_limits_round_trip_and_reject_unknown_fields() {
     typo["coalesce"] = json!({"debounce": 5});
     assert!(serde_json::from_value::<PipelineConfig>(typo).is_err());
 }
+
+#[test]
+fn salience_and_digest_sections_default_when_absent() {
+    let config: PipelineConfig = serde_json::from_value(minimal()).unwrap();
+    let salience = &config.salience;
+    assert_eq!(salience.weights.base, 25);
+    assert_eq!(salience.weights.addressed, 50);
+    assert_eq!(salience.weights.direct, 50);
+    assert_eq!(salience.weights.known_contact, 15);
+    assert_eq!(salience.weights.keyword, 20);
+    assert_eq!(salience.weights.age_penalty_per_minute, 1);
+    assert_eq!(salience.weights.max_age_penalty, 20);
+    assert_eq!(salience.thresholds.interactive, 70);
+    assert_eq!(salience.thresholds.actionable, 40);
+    assert_eq!(salience.thresholds.background, 15);
+    assert_eq!(salience.borderline, None);
+    assert_eq!(salience.habituation.window, 64);
+    assert_eq!(salience.habituation.window_ms, 3_600_000);
+    assert_eq!(salience.habituation.max_distance, 3);
+    assert_eq!(salience.habituation.decay_percent, 40);
+    assert_eq!(config.digest.max_items, 200);
+    assert_eq!(config.digest.max_wait_ms, 600_000);
+    assert_eq!(config.lanes.get(Lane::Digest).max_backlog, 1_000);
+    assert_eq!(config.source_policy("x").weight, 0);
+}
+
+#[test]
+fn a_borderline_band_round_trips() {
+    let mut value = minimal();
+    value["salience"] = json!({"borderline": {"low": 30, "high": 50, "budget_per_hour": 60}});
+    let config: PipelineConfig = serde_json::from_value(value).unwrap();
+    assert_eq!(
+        config.salience.borderline,
+        Some(super::Borderline::new(30, 50, 60))
+    );
+}

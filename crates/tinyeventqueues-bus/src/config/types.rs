@@ -28,6 +28,238 @@ pub struct PipelineConfig {
     /// The debounce buffer.
     #[serde(default)]
     pub coalesce: CoalesceConfig,
+    /// Salience scoring and habituation.
+    #[serde(default)]
+    pub salience: SalienceConfig,
+    /// The digest accumulator.
+    #[serde(default)]
+    pub digest: DigestConfig,
+}
+
+/// Salience: how much an event deserves the agent's attention, from 0 to
+/// 100, and which lane that earns it.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SalienceConfig {
+    /// Points per feature.
+    #[serde(default)]
+    pub weights: SalienceWeights,
+    /// Words that mark an event as worth attention (case-insensitive).
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    /// Senders the agent knows: sender ids or `<source>/<sender id>`.
+    #[serde(default)]
+    pub known_contacts: Vec<String>,
+    /// Score thresholds for each lane.
+    #[serde(default)]
+    pub thresholds: SalienceThresholds,
+    /// The band of scores the host's `ClassifySalience` decides; absent, the
+    /// rule score always stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub borderline: Option<Borderline>,
+    /// Decay for content a source keeps repeating.
+    #[serde(default)]
+    pub habituation: HabituationConfig,
+}
+
+/// Points each salience feature adds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SalienceWeights {
+    /// Base points every event starts with.
+    #[serde(default = "default_base")]
+    pub base: u32,
+    /// The event is addressed to the agent, or a mention.
+    #[serde(default = "default_addressed")]
+    pub addressed: u32,
+    /// The conversation is a direct message.
+    #[serde(default = "default_addressed")]
+    pub direct: u32,
+    /// The sender is a known contact.
+    #[serde(default = "default_known_contact")]
+    pub known_contact: u32,
+    /// The text holds a keyword.
+    #[serde(default = "default_keyword")]
+    pub keyword: u32,
+    /// Points lost per minute between receipt and scoring.
+    #[serde(default = "default_recency")]
+    pub age_penalty_per_minute: u32,
+    /// The most points age can cost.
+    #[serde(default = "default_max_age_penalty")]
+    pub max_age_penalty: u32,
+}
+
+fn default_base() -> u32 {
+    25
+}
+fn default_addressed() -> u32 {
+    50
+}
+fn default_known_contact() -> u32 {
+    15
+}
+fn default_keyword() -> u32 {
+    20
+}
+fn default_recency() -> u32 {
+    1
+}
+fn default_max_age_penalty() -> u32 {
+    20
+}
+
+impl Default for SalienceWeights {
+    fn default() -> Self {
+        Self {
+            base: default_base(),
+            addressed: default_addressed(),
+            direct: default_addressed(),
+            known_contact: default_known_contact(),
+            keyword: default_keyword(),
+            age_penalty_per_minute: default_recency(),
+            max_age_penalty: default_max_age_penalty(),
+        }
+    }
+}
+
+/// The lowest score of each lane. Below `background`, an event is noise and
+/// goes to the digest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SalienceThresholds {
+    /// The lowest interactive score.
+    #[serde(default = "default_interactive")]
+    pub interactive: u32,
+    /// The lowest actionable score.
+    #[serde(default = "default_actionable")]
+    pub actionable: u32,
+    /// The lowest background score.
+    #[serde(default = "default_background")]
+    pub background: u32,
+}
+
+fn default_interactive() -> u32 {
+    70
+}
+fn default_actionable() -> u32 {
+    40
+}
+fn default_background() -> u32 {
+    15
+}
+
+impl Default for SalienceThresholds {
+    fn default() -> Self {
+        Self {
+            interactive: default_interactive(),
+            actionable: default_actionable(),
+            background: default_background(),
+        }
+    }
+}
+
+/// Scores in `low..high` are borderline: the host's `ClassifySalience`
+/// decides them, at most `budget_per_hour` times an hour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Borderline {
+    /// The lowest borderline score.
+    pub low: u32,
+    /// The first score above the band.
+    pub high: u32,
+    /// Host classifications allowed per hour.
+    pub budget_per_hour: u32,
+}
+
+impl Borderline {
+    /// A band `low..high` with `budget_per_hour` classifications.
+    #[must_use]
+    pub fn new(low: u32, high: u32, budget_per_hour: u32) -> Self {
+        Self {
+            low,
+            high,
+            budget_per_hour,
+        }
+    }
+}
+
+/// Habituation: content a source repeats loses salience. Each recent
+/// near-duplicate (`SimHash` within `max_distance` bits) in the source's last
+/// `window` events within `window_ms` takes `decay_percent` off the score.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct HabituationConfig {
+    /// Fingerprints kept per source.
+    #[serde(default = "default_habituation_window")]
+    pub window: u32,
+    /// How long a fingerprint counts, in milliseconds.
+    #[serde(default = "default_habituation_window_ms")]
+    pub window_ms: u64,
+    /// The most differing bits for two texts to count as near-duplicates.
+    #[serde(default = "default_max_distance")]
+    pub max_distance: u32,
+    /// The share of the score each near-duplicate takes, in percent.
+    #[serde(default = "default_decay_percent")]
+    pub decay_percent: u32,
+}
+
+fn default_habituation_window() -> u32 {
+    64
+}
+fn default_habituation_window_ms() -> u64 {
+    3_600_000
+}
+fn default_max_distance() -> u32 {
+    3
+}
+fn default_decay_percent() -> u32 {
+    40
+}
+
+impl Default for HabituationConfig {
+    fn default() -> Self {
+        Self {
+            window: default_habituation_window(),
+            window_ms: default_habituation_window_ms(),
+            max_distance: default_max_distance(),
+            decay_percent: default_decay_percent(),
+        }
+    }
+}
+
+/// The digest accumulator: spilled, overflowing and noisy events gather here
+/// and go out as one digest turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DigestConfig {
+    /// Release a digest turn once it holds this many events.
+    #[serde(default = "default_digest_items")]
+    pub max_items: u32,
+    /// Release a digest turn this long after its first event at the latest.
+    #[serde(default = "default_digest_wait_ms")]
+    pub max_wait_ms: u64,
+}
+
+fn default_digest_items() -> u32 {
+    200
+}
+fn default_digest_wait_ms() -> u64 {
+    600_000
+}
+
+impl Default for DigestConfig {
+    fn default() -> Self {
+        Self {
+            max_items: default_digest_items(),
+            max_wait_ms: default_digest_wait_ms(),
+        }
+    }
 }
 
 /// The deterministic gate: who may reach the agent, and how often.
@@ -283,6 +515,14 @@ pub struct LaneConfig {
     /// conversations. A conversation never has more than one.
     #[serde(default = "default_concurrency")]
     pub concurrency: u32,
+    /// The most turns the lane may hold waiting; past it, new work spills to
+    /// the digest (`lane_overflow`). Ignored for the digest lane itself.
+    #[serde(default = "default_max_backlog")]
+    pub max_backlog: u64,
+}
+
+fn default_max_backlog() -> u64 {
+    1_000
 }
 
 fn default_concurrency() -> u32 {
@@ -351,6 +591,9 @@ pub struct SourcePolicy {
     /// When the platform may be acknowledged.
     #[serde(default)]
     pub ack: AckPolicy,
+    /// Salience points the source adds (or, negative, takes away).
+    #[serde(default)]
+    pub weight: i32,
 }
 
 impl Default for SourcePolicy {
@@ -358,6 +601,7 @@ impl Default for SourcePolicy {
         Self {
             pattern: "*".to_owned(),
             ack: AckPolicy::default(),
+            weight: 0,
         }
     }
 }

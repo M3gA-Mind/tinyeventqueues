@@ -26,8 +26,11 @@ use crate::Result;
 use crate::coalesce::Coalescer;
 use crate::config::{ResolvedQueues, check_values, resolve_queues};
 use crate::dead::DeadLetters;
+use crate::digest::Digest;
 use crate::gate::{Ambient, Gate};
+use crate::host::Host;
 use crate::ingress::Ingress;
+use crate::salience::Habituation;
 use crate::store::{Ledger, Tombstones};
 use crate::turn::Lanes;
 
@@ -59,6 +62,9 @@ struct Inner {
     ambient: Ambient,
     coalescer: Coalescer,
     lanes: Lanes,
+    habituation: Habituation,
+    digest: Digest,
+    host: Option<Arc<dyn Host>>,
     consumer: String,
 }
 
@@ -203,6 +209,7 @@ impl Pipeline {
         let mut report = DrainReport::default();
         report.ingested = self.take_ingress(&running, now).await?;
         report.flushed = self.flush_due(&running, now).await?;
+        self.release_digest(&running, now).await?;
         self.inner.dead.settle(&running.queues.dead).await?;
         report.dead = self.inner.dead.sweep(&running.queues, now, ttl).await?;
         report.pruned =

@@ -15,9 +15,12 @@ use crate::config::{
     shipped_pipeline_config,
 };
 use crate::dead::DeadLetters;
+use crate::digest::Digest;
 use crate::gate::{Ambient, Gate};
+use crate::host::Host;
 use crate::ingress::Ingress;
 use crate::observe::{NoopSink, OutcomeSink};
+use crate::salience::Habituation;
 use crate::store::{self, Ledger, Tombstones};
 use crate::turn::Lanes;
 use crate::{Error, Result};
@@ -39,6 +42,7 @@ pub struct PipelineBuilder {
     config: Source<PipelineConfig>,
     clock: Option<Clock>,
     sink: Arc<dyn OutcomeSink>,
+    host: Option<Arc<dyn Host>>,
     consumer: String,
 }
 
@@ -61,6 +65,7 @@ impl PipelineBuilder {
             config: Source::Shipped,
             clock: None,
             sink: Arc::new(NoopSink),
+            host: None,
             consumer: "tinyeventqueues".to_owned(),
         }
     }
@@ -105,6 +110,13 @@ impl PipelineBuilder {
     #[must_use]
     pub fn sink(mut self, sink: Arc<dyn OutcomeSink>) -> Self {
         self.sink = sink;
+        self
+    }
+
+    /// Call `host` back for salience classification.
+    #[must_use]
+    pub fn host(mut self, host: Arc<dyn Host>) -> Self {
+        self.host = Some(host);
         self
     }
 
@@ -157,6 +169,8 @@ impl PipelineBuilder {
         let ambient = Ambient::new(&self.docs)?;
         let coalescer = Coalescer::new(&self.docs)?;
         let lanes = Lanes::new(Arc::clone(&self.queues), tombstones.clone());
+        let habituation = Habituation::new(&self.docs)?;
+        let digest = Digest::new(&self.docs)?;
         Ok(Pipeline {
             inner: Arc::new(Inner {
                 queues: self.queues,
@@ -174,6 +188,9 @@ impl PipelineBuilder {
                 ambient,
                 coalescer,
                 lanes,
+                habituation,
+                digest,
+                host: self.host,
                 consumer: self.consumer,
             }),
         })
