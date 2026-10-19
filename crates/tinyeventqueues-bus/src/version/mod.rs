@@ -8,7 +8,7 @@
 //! release workflow bumps, which tracks the shipped artifact.
 
 /// The wire contract version this crate defines.
-pub const CONTRACT_VERSION: (u32, u32) = (1, 0);
+pub const CONTRACT_VERSION: (u32, u32) = (0, 1);
 
 /// Returns whether a host holding [`CONTRACT_VERSION`] can bind to a module
 /// reporting `module`.
@@ -20,10 +20,10 @@ pub const CONTRACT_VERSION: (u32, u32) = (1, 0);
 /// # Examples
 ///
 /// ```
-/// # use template_bus::{is_compatible, CONTRACT_VERSION};
+/// # use tinyeventqueues_bus::{is_compatible, CONTRACT_VERSION};
 /// assert!(is_compatible(CONTRACT_VERSION));
-/// assert!(is_compatible((1, 4)));
-/// assert!(!is_compatible((2, 0)));
+/// assert!(is_compatible((0, 4)));
+/// assert!(!is_compatible((1, 1)));
 /// ```
 #[must_use]
 pub fn is_compatible(module: (u32, u32)) -> bool {
@@ -43,4 +43,5 @@ fn binds(host: (u32, u32), module: (u32, u32)) -> bool {
 }
 
 #[cfg(test)]
-mod test;
+#[path = "mod_tests.rs"]
+mod tests;
