@@ -23,7 +23,7 @@ use crate::ingress::Ingress;
 use crate::observe::{NoopSink, OutcomeSink};
 use crate::salience::Habituation;
 use crate::store::{self, Ledger, Tombstones};
-use crate::turn::{Conversations, Lanes};
+use crate::turn::{Conversations, Lanes, Threads};
 use crate::{Error, Result};
 
 /// Where a file-backed setting comes from.
@@ -199,6 +199,7 @@ impl PipelineBuilder {
                 digest,
                 scheduler,
                 conversations,
+                threads: Threads::new(&self.docs)?,
                 host: self.host,
                 consumer: self.consumer,
             }),

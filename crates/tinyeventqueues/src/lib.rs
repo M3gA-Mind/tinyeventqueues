@@ -12,9 +12,7 @@
 //!
 //! and every ingested event ends in exactly one terminal [`Disposition`]:
 //! delivered, context, digest, dead, or dropped with a [`Reason`]. The full
-//! contract is `docs/specs/event-pipeline.md`; this release implements
-//! ingress, the gate, coalescing, salience with habituation, the attention
-//! lanes and the digest, dead letters and configuration.
+//! contract is `docs/specs/event-pipeline.md`.
 //!
 //! # Storage
 //!

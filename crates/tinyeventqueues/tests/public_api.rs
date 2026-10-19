@@ -84,3 +84,67 @@ fn the_contract_is_reexported_as_the_same_types() {
         tinyeventqueues::CONTRACT_VERSION
     ));
 }
+
+/// A host as a downstream crate writes one.
+#[derive(Debug, Default)]
+struct Agent {
+    turns: std::sync::Mutex<Vec<tinyeventqueues::Turn>>,
+}
+
+#[async_trait::async_trait]
+impl tinyeventqueues::Host for Agent {
+    async fn classify_salience(
+        &self,
+        _request: tinyeventqueues::ClassifySalienceRequest,
+    ) -> tinyeventqueues::Result<tinyeventqueues::ClassifySalienceResponse> {
+        Ok(tinyeventqueues::ClassifySalienceResponse::new(
+            tinyeventqueues::SalienceClass::Fyi,
+        ))
+    }
+
+    async fn deliver(
+        &self,
+        request: tinyeventqueues::DeliverRequest,
+    ) -> tinyeventqueues::Result<tinyeventqueues::DeliverResponse> {
+        self.turns.lock().unwrap().push(request.turn);
+        Ok(tinyeventqueues::DeliverResponse::new(
+            tinyeventqueues::DeliverStatus::Accepted,
+        ))
+    }
+}
+
+#[tokio::test]
+async fn a_host_receives_turns_from_drain() {
+    let clock = ManualClock::new(5_000);
+    let storage = MemoryStorage::with_clock(clock.clock())
+        .for_scope(&Scope::local())
+        .unwrap();
+    let docs = Arc::clone(storage.documents());
+    let agent = Arc::new(Agent::default());
+    let pipeline = Pipeline::builder(
+        Arc::new(DocumentQueue::new(&docs).with_clock(clock.clock())),
+        Arc::clone(&docs),
+    )
+    .clock(clock.clock())
+    .host(agent.clone())
+    .build()
+    .await
+    .unwrap();
+    let dm = InboundEvent::new(
+        "web:chat",
+        "1",
+        "visitor-1",
+        Sender::new("v"),
+        EventKind::Message,
+        5_000,
+    )
+    .direct(true)
+    .text("hi there");
+    pipeline.ingest(vec![dm]).await.unwrap();
+    pipeline.drain().await.unwrap();
+    clock.advance(2_000);
+    let report = pipeline.drain().await.unwrap();
+    assert_eq!(report.dispatched, 1);
+    assert_eq!(agent.turns.lock().unwrap()[0].events[0].event_id, "1");
+    assert_eq!(pipeline.stats().await.unwrap().outcomes.delivered, 1);
+}

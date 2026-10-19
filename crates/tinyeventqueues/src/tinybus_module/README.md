@@ -13,6 +13,11 @@ initialization symbols consumed by the dynamic loader. The manifest method list
 must stay aligned with the interface macro's dispatch table and with
 `tinyeventqueues_bus::names::METHODS`; the unit tests check both.
 
+Host callbacks: a `BusHost` installed as the pipeline's `Host` calls the
+host's `ai.tinyhumans.tinyeventqueues.Host` interface (`ClassifySalience`,
+`Deliver`) at `names::host::OBJECT_PATH`. While no host serves it, deliveries
+fail and turns back off and retry. Passes run when the host calls `Drain`.
+
 Storage: until the module is wired to the host's storage through the
 `tinystoragedrivers` storage bus, `setup` builds the pipeline over an
 in-process `MemoryStorage` with the shipped `queues.json` and

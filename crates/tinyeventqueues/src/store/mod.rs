@@ -48,6 +48,8 @@ pub(crate) const STAGED: &str = "teq.staged";
 pub(crate) const CADENCE: &str = "teq.cadence";
 /// Per-conversation turn order, on queue backends without groups.
 pub(crate) const CONVERSATIONS: &str = "teq.conversations";
+/// Queued, unsettled turns per thread.
+pub(crate) const THREADS: &str = "teq.threads";
 
 /// The collections the pipeline uses, with their indexes.
 pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
@@ -66,6 +68,7 @@ pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
             .index(IndexSpec::new("by_cadence", ["cadence_key"])),
         CollectionSpec::new(CADENCE),
         CollectionSpec::new(CONVERSATIONS),
+        CollectionSpec::new(THREADS),
         CollectionSpec::new(COALESCE)
             .index(IndexSpec::new("by_due", ["due_ms"]))
             .index(IndexSpec::new("by_thread", ["thread_group"])),

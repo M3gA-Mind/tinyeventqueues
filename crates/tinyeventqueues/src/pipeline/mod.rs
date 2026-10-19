@@ -34,7 +34,7 @@ use crate::host::Host;
 use crate::ingress::Ingress;
 use crate::salience::Habituation;
 use crate::store::{Ledger, Tombstones};
-use crate::turn::{Conversations, Lanes};
+use crate::turn::{Conversations, Lanes, Threads};
 
 pub use builder::PipelineBuilder;
 
@@ -68,6 +68,7 @@ struct Inner {
     digest: Digest,
     scheduler: Scheduler,
     conversations: Conversations,
+    threads: Threads,
     host: Option<Arc<dyn Host>>,
     consumer: String,
 }

@@ -122,3 +122,45 @@ async fn without_dedupe_or_groups_a_turn_is_stored_once_and_ungrouped() {
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].group, None);
 }
+
+#[tokio::test]
+async fn conversation_order_without_groups() {
+    let fixture = Fixture::new();
+    crate::store::ensure(fixture.docs.as_ref()).await.unwrap();
+    let conversations = Conversations::new(&fixture.docs).unwrap();
+    assert_eq!(conversations.assign("c").await.unwrap(), 1);
+    assert_eq!(conversations.assign("c").await.unwrap(), 2);
+    assert_eq!(
+        conversations.check("c", 2, 100, 0).await.unwrap(),
+        Turnstile::Wait
+    );
+    assert_eq!(
+        conversations.check("c", 1, 100, 0).await.unwrap(),
+        Turnstile::Go
+    );
+    // Seen and backing off: a later turn waits past the gap timeout.
+    assert_eq!(
+        conversations.check("c", 1, 100, 10).await.unwrap(),
+        Turnstile::Go
+    );
+    assert_eq!(
+        conversations.check("c", 2, 100, 500).await.unwrap(),
+        Turnstile::Wait
+    );
+    conversations.finish("c", 1).await.unwrap();
+    conversations.finish("c", 1).await.unwrap();
+    assert_eq!(
+        conversations.check("c", 1, 100, 600).await.unwrap(),
+        Turnstile::Done
+    );
+    assert_eq!(
+        conversations.check("c", 2, 100, 600).await.unwrap(),
+        Turnstile::Go
+    );
+    // A conversation never seen starts at the turn that arrives.
+    assert_eq!(
+        conversations.check("new", 7, 100, 0).await.unwrap(),
+        Turnstile::Go
+    );
+    conversations.finish("none", 1).await.unwrap();
+}

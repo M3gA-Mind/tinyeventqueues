@@ -187,14 +187,15 @@ fn words(id: &str) -> String {
         .join(" ")
 }
 
+/// How a [`ScriptedHost`] answers a turn.
+type Decide = dyn Fn(&tinyeventqueues_bus::Turn) -> crate::Result<tinyeventqueues_bus::DeliverStatus>
+    + Send
+    + Sync;
+
 /// A host whose verdict on each turn is scripted, and which records every
 /// turn it is handed.
 pub(crate) struct ScriptedHost {
-    decide: Box<
-        dyn Fn(&tinyeventqueues_bus::Turn) -> crate::Result<tinyeventqueues_bus::DeliverStatus>
-            + Send
-            + Sync,
-    >,
+    decide: Box<Decide>,
     pub(crate) delivered: std::sync::Mutex<Vec<tinyeventqueues_bus::Turn>>,
 }
 

@@ -82,7 +82,7 @@ fn random_event(rng: &mut Rng, id: u64, now: u64, earlier: &[InboundEvent]) -> I
     .addressed(rng.chance(30))
     .direct(rng.chance(20))
     .text(
-        (0..1 + rng.below(6))
+        (0..=rng.below(6))
             .map(|_| *rng.pick(&WORDS))
             .collect::<Vec<_>>()
             .join(" "),
@@ -172,7 +172,7 @@ async fn no_ingested_event_is_lost_or_ends_twice() {
         let mut next_id = 0;
         for _ in 0..40 {
             let mut batch = Vec::new();
-            for _ in 0..1 + rng.below(15) {
+            for _ in 0..=rng.below(15) {
                 let now = fixture.clock.now();
                 let event = if !sent.is_empty() && rng.chance(8) {
                     rng.pick(&sent).clone()
@@ -252,6 +252,51 @@ fn lean_manifest() -> tinystoragedrivers_core::queue::QueueManifest {
     manifest
 }
 
+/// One simulated second of the flood: nine webhook notifications for every
+/// web-chat message.
+fn flood_second(rng: &mut Rng, next_id: &mut u64, now: u64) -> Vec<InboundEvent> {
+    let mut batch = Vec::new();
+    for i in 0..100 {
+        *next_id += 1;
+        let id = next_id.to_string();
+        let event = if i % 10 == 0 {
+            let conversation = format!("chat-{}", rng.below(50));
+            let mut event = InboundEvent::new(
+                "web:chat",
+                &id,
+                conversation,
+                Sender::new("visitor"),
+                EventKind::Message,
+                now,
+            )
+            .direct(true)
+            .text(
+                (0..8)
+                    .map(|_| format!("w{}", rng.below(4_096)))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            if rng.chance(50) {
+                event = event.thread(format!("t{}", rng.below(2)));
+            }
+            event
+        } else {
+            let conversation = format!("repo-{}", rng.below(100));
+            InboundEvent::new(
+                "webhook:ci",
+                &id,
+                conversation,
+                Sender::new("ci"),
+                EventKind::Notification,
+                now,
+            )
+            .text(format!("build {id} finished"))
+        };
+        batch.push(event);
+    }
+    batch
+}
+
 async fn flood(fixture: Fixture) {
     let delivered: Arc<std::sync::Mutex<Vec<(tinyeventqueues_bus::Turn, u64)>>> = Arc::default();
     let record = Arc::clone(&delivered);
@@ -275,41 +320,7 @@ async fn flood(fixture: Fixture) {
     let mut rng = Rng(42);
     let mut next_id: u64 = 0;
     for _second in 0..100 {
-        let now = fixture.clock.now();
-        let mut batch = Vec::new();
-        for i in 0..100 {
-            next_id += 1;
-            let id = next_id.to_string();
-            let event = if i % 10 == 0 {
-                let conversation = format!("chat-{}", rng.below(50));
-                let mut event = InboundEvent::new(
-                    "web:chat",
-                    &id,
-                    conversation,
-                    Sender::new("visitor"),
-                    EventKind::Message,
-                    now,
-                )
-                .direct(true)
-                .text(format!("question {id}"));
-                if rng.chance(50) {
-                    event = event.thread(format!("t{}", rng.below(2)));
-                }
-                event
-            } else {
-                let conversation = format!("repo-{}", rng.below(100));
-                InboundEvent::new(
-                    "webhook:ci",
-                    &id,
-                    conversation,
-                    Sender::new("ci"),
-                    EventKind::Notification,
-                    now,
-                )
-                .text(format!("build {id} finished"))
-            };
-            batch.push(event);
-        }
+        let batch = flood_second(&mut rng, &mut next_id, fixture.clock.now());
         let response = pipeline.ingest(batch).await.unwrap();
         assert!(
             response
@@ -320,8 +331,12 @@ async fn flood(fixture: Fixture) {
         pipeline.drain().await.unwrap();
         fixture.clock.advance(1_000);
     }
-    for _ in 0..200 {
-        fixture.clock.advance(60_000);
+    // Passes keep running once a second for a while, then the clock jumps
+    // ahead so every cadence, backoff and digest comes due.
+    for step in 0..230 {
+        fixture
+            .clock
+            .advance(if step < 30 { 1_000 } else { 60_000 });
         pipeline.drain().await.unwrap();
     }
 
@@ -344,9 +359,15 @@ async fn flood(fixture: Fixture) {
             let id: u64 = event.event_id.parse().unwrap();
             let previous = last.insert(key.clone(), id).unwrap_or(0);
             assert!(previous < id, "{key:?} reordered: {previous} then {id}");
-            if turn.lane == Lane::Interactive {
-                worst_interactive_ms = worst_interactive_ms.max(at - event.received_at_ms);
-            }
+        }
+        // The newest event of an interactive turn is the one that made it
+        // interactive; older ones may have waited on a slower lane first.
+        if let Some(newest) = turn
+            .events
+            .last()
+            .filter(|_| turn.lane == Lane::Interactive)
+        {
+            worst_interactive_ms = worst_interactive_ms.max(at - newest.received_at_ms);
         }
     }
     assert_eq!(seen, 10_000);

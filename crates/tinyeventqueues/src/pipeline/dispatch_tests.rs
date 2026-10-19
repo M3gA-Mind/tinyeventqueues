@@ -99,7 +99,11 @@ async fn a_digest_turn_ends_its_events_as_digest() {
     pipeline.drain().await.unwrap();
     let outcomes = pipeline.stats().await.unwrap().outcomes;
     assert_eq!((outcomes.delivered, outcomes.digest), (1, 1));
-    assert!(host.turns().iter().any(|t| t.is_digest()));
+    assert!(
+        host.turns()
+            .iter()
+            .any(tinyeventqueues_bus::Turn::is_digest)
+    );
 }
 
 #[tokio::test]
@@ -330,7 +334,16 @@ async fn without_groups_a_lost_turn_is_skipped_after_the_gap_timeout() {
         pipeline.drain().await.unwrap();
     }
     assert_eq!(host.turns().len(), 1);
-    // A redelivery of a finished turn is acknowledged, not delivered again.
+    // A redelivery of a finished turn whose events all ended is
+    // acknowledged, not delivered again.
+    let ledger = crate::store::Ledger::new(Arc::clone(&fixture.docs), Arc::new(crate::NoopSink));
+    let ended = tinyeventqueues_bus::Outcome::new(
+        EventRef::new("channel:slack", "0"),
+        Disposition::Delivered,
+        Reason::Turn,
+        0,
+    );
+    ledger.record(ended, 1_000_000).await.unwrap();
     let queue = pipeline.queues().lane(Lane::Interactive).name.clone();
     fixture
         .queues
@@ -342,5 +355,4 @@ async fn without_groups_a_lost_turn_is_skipped_after_the_gap_timeout() {
         .unwrap();
     pipeline.drain().await.unwrap();
     assert_eq!(host.turns().len(), 1);
-    let _ = Disposition::Delivered;
 }

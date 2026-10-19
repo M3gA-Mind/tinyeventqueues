@@ -8,7 +8,8 @@
 //!   folding each conversation's events into one entry, and released when
 //!   due; once a token is available again the cadence is instant again.
 //! - **Scheduled** (`every(..)`, `cron(..)`): turns are staged until the next
-//!   tick, one entry per conversation thread (so a conversation's events fold
+//!   tick, one entry per conversation thread (whatever its cadence: a later
+//!   turn of the thread folds into the waiting entry) (so a conversation's events fold
 //!   into one pending entry). A tick releases at most `max_turns`, oldest
 //!   first; the rest wait for the next tick, and waiting entries beyond
 //!   `max_turns * backlog_ticks` fold into the digest.
@@ -145,12 +146,11 @@ pub(crate) struct Scheduler {
     states: Repo<State>,
 }
 
-/// One entry per cadence and thread: a thread's turns on different lanes
-/// still fold together, so a turn never overtakes an older one.
-fn staged_id(key: &str, first: &InboundEvent) -> Result<String> {
+/// One entry per thread, whatever its cadence or lane: a thread's later
+/// turns fold into its waiting entry, so a turn never overtakes an older one.
+fn staged_id(first: &InboundEvent) -> Result<String> {
     Ok(Key::of([
         "staged",
-        key,
         first.source.as_str(),
         first.conversation_key.as_str(),
         first.thread_key.as_deref().unwrap_or(""),
@@ -216,7 +216,7 @@ impl Scheduler {
         let Some(first) = events.first() else {
             return Ok(false);
         };
-        let id = staged_id(&resolved.key, first)?;
+        let id = staged_id(first)?;
         let written = self
             .staged
             .update(&id, |current| {
@@ -249,12 +249,8 @@ impl Scheduler {
     }
 
     /// The staged entry of `events`' conversation thread, if one waits.
-    pub(crate) async fn entry_of(
-        &self,
-        resolved: &Resolved,
-        first: &InboundEvent,
-    ) -> Result<Option<Versioned<Staged>>> {
-        let id = staged_id(&resolved.key, first)?;
+    pub(crate) async fn entry_of(&self, first: &InboundEvent) -> Result<Option<Versioned<Staged>>> {
+        let id = staged_id(first)?;
         Ok(self.staged.get(&id).await?)
     }
 

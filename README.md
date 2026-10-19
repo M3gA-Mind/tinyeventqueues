@@ -19,14 +19,13 @@ MongoDB or a broker, and survives restarts: all state lives in storage.
 
 The full contract is [`docs/specs/event-pipeline.md`](docs/specs/event-pipeline.md);
 delivery order is in [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline.md).
-Implemented so far: ingress with completion tombstones, the gate (sender
-lists, DM/group policy, self-echo, bot-loop guard, durable token buckets,
-ambient context), the durable debounce buffer, salience with SimHash
-habituation and borderline host classification, the attention lanes with
-overflow spilling to a folded digest, the cadence scheduler (`instant`,
-`every(..)`, `cron(..)`) with ingestion budgets and overflow folding, the
-outcome ledger, dead letters
-(`ListDead` / `Redrive`), configuration, and the TinyBus adapter.
+All seven stages are implemented: ingress with completion tombstones, the
+gate, coalescing, salience with habituation and borderline host
+classification, attention lanes with digest spill, the cadence scheduler with
+ingestion budgets, and dispatch to the host with retries, backoff and dead
+letters (`ListDead` / `Redrive`). A property test checks that every ingested
+event ends exactly once, and a 10,000-event flood test checks order, thread
+separation and interactive latency.
 
 ## Configuration
 
@@ -88,7 +87,7 @@ crates/
         ├── host/          # the `Host` callback trait
         ├── store/         # collections, tombstones, the outcome ledger
         ├── dead/          # parking, listing and redriving dead work
-        ├── pipeline/      # `Pipeline` and its builder
+        ├── pipeline/      # `Pipeline`, its builder, the pass and dispatch
         ├── observe/       # outcome sinks
         ├── clock/         # system and manual clocks
         └── tinybus_module/

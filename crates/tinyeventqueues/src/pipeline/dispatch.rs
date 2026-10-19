@@ -77,6 +77,20 @@ impl Pipeline {
                         .await?;
                     continue;
                 };
+                if self.inner.threads.is_superseded(&pending).await? {
+                    self.inner
+                        .queues
+                        .ack(&queue.name, &delivery.receipt)
+                        .await?;
+                    self.inner.threads.settle(&pending).await?;
+                    if let Some(seq) = pending.seq {
+                        self.inner
+                            .conversations
+                            .finish(&pending.conversation_key, seq)
+                            .await?;
+                    }
+                    continue;
+                }
                 if let Some(seq) = pending.seq {
                     let gate = self
                         .inner
@@ -89,7 +103,6 @@ impl Pipeline {
                         )
                         .await?;
                     match gate {
-                        Turnstile::Go => {}
                         Turnstile::Wait => {
                             // Waiting is not a delivery attempt: requeue a
                             // fresh copy rather than spend one of the turn's
@@ -110,12 +123,13 @@ impl Pipeline {
                                 .queues
                                 .ack(&queue.name, &delivery.receipt)
                                 .await?;
+                            self.inner.threads.settle(&pending).await?;
                             continue;
                         }
-                        Turnstile::Done => {}
+                        Turnstile::Go | Turnstile::Done => {}
                     }
                 }
-                let turn = self.turn_for(&pending, delivery.attempt, running);
+                let turn = Self::turn_for(&pending, delivery.attempt, running);
                 let status = match host.deliver(DeliverRequest::new(turn)).await {
                     Ok(reply) => reply.status,
                     Err(_) => DeliverStatus::Retry { after_ms: None },
@@ -148,7 +162,7 @@ impl Pipeline {
         Ok(true)
     }
 
-    fn turn_for(&self, pending: &PendingTurn, attempt: u32, running: &Running) -> Turn {
+    fn turn_for(pending: &PendingTurn, attempt: u32, running: &Running) -> Turn {
         let mut turn = Turn::new(
             pending.turn_id.clone(),
             pending.lane,
@@ -279,6 +293,7 @@ impl Pipeline {
             .queues
             .ack(&settling.queue.name, &settling.delivery.receipt)
             .await?;
+        self.inner.threads.settle(settling.pending).await?;
         if let Some(seq) = settling.pending.seq {
             self.inner
                 .conversations

@@ -290,6 +290,10 @@ impl Conversations {
     }
 }
 
+mod threads;
+
+pub(crate) use threads::Threads;
+
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
