@@ -1,15 +1,22 @@
-# Template TinyBus Module
+# tinyeventqueues TinyBus Module
 
-This package contains the native `template` module for TinyBus module ABI
-v1. Install only the archive matching the host operating system and
+This package contains the native `tinyeventqueues` module for TinyBus module
+ABI v1. Install only the archive matching the host operating system and
 architecture.
 
-The module claims `ai.tinyhumans.template.Greeting`, serves the object at
-`/ai/tinyhumans/template/Greeting`, and provides the `Greet` method. The
-method accepts a `GreetRequest` and returns a `GreetResponse` carrying
-`Hello, <name>!`; empty names are rejected. Both payload types, the interface
-name, the object path, and the member names are published as the `template-bus`
-crate, so a host names them from a library rather than by string literal.
+The module claims `ai.tinyhumans.tinyeventqueues.EventQueues`, serves it at
+`/ai/tinyhumans/tinyeventqueues/EventQueues`, and provides `Ingest`,
+`Configure`, `Stats`, `ListDead`, `Redrive` and `Drain`. It durably queues
+inbound events and filters them before they reach an agent; hosts serve
+`ai.tinyhumans.tinyeventqueues.Host` (`ClassifySalience`, `Deliver`) for the
+module's callbacks. The interface names, object paths, member names and
+payload types are published as the `tinyeventqueues-bus` crate, so a host
+names them from a library rather than by string literal.
+
+Until the module is wired to the host's storage through the
+`tinystoragedrivers` storage bus, it runs over in-process memory storage with
+the queue manifest and pipeline configuration compiled into it; its queues do
+not survive a host restart in that mode.
 
 The archive contains one `.so`, `.dylib`, or `.dll` plus `modules.toml`. Keep
 those files together when copying them into a TinyBus module directory. The
@@ -22,8 +29,8 @@ archive. Install directly from a tagged release with:
 
 ```sh
 tinybus modules load-github \
-  https://github.com/tinyhumansai/rust-template/releases/tag/v0.1.5 \
-  template-0.1.5-ubuntu-24.04-x86_64.tar.gz \
+  https://github.com/tinyhumansai/tinyeventqueues/releases/tag/v0.1.0 \
+  tinyeventqueues-0.1.0-ubuntu-24.04-x86_64.tar.gz \
   <archive-sha256>
 ```
 

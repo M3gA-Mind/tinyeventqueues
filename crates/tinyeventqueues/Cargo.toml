@@ -1,0 +1,47 @@
+[package]
+name = "tinyeventqueues"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "External event management and queuing: durably queues noisy inbound events and filters them before they reach an agent, as a TinyBus module over tinystoragedrivers."
+documentation = "https://docs.rs/tinyeventqueues"
+readme = "../../README.md"
+keywords = ["tinybus", "events", "queue", "filtering", "agents"]
+categories = ["asynchronous"]
+publish = false
+
+[lib]
+# Keep the ordinary Rust library for tests and downstream reuse while also
+# producing the native module artifact that TinyBus loads at runtime.
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# The wire contract: the envelope, member names, payloads, outcomes and the
+# pipeline configuration. Re-exported wholesale from `src/lib.rs`.
+tinyeventqueues-bus = { workspace = true }
+# Storage ports the pipeline runs over (see the root manifest for the pin).
+tinystoragedrivers-core = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
+tinybus = { workspace = true }
+tinybus-module = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+# The queue conformance suite (`conformance::run_queue`) checks the broker
+# test double behaves like a real queue backend.
+tinystoragedrivers-core = { workspace = true, features = ["testkit"] }
+# The release verifier passes an explicit empty module configuration, and the
+# tests build JSON fixtures.
+serde_json = { workspace = true }
+
+[features]
+default = []
+
+[lints]
+workspace = true

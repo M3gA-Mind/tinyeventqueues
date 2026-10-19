@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/tinyhumansai/tinyeventqueues/main/schemas/pipeline.schema.json",
+  "title": "tinyeventqueues pipeline configuration",
+  "description": "The tunables of the inbound event pipeline. Loaded by tinyeventqueues::config::load_pipeline_config, which rejects unknown fields and names the offending field in every error. Queue names refer to queues declared in queues.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "ingress", "dead_letter", "lanes"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "This schema's URL, for editors. Not interpreted."
+    },
+    "version": {
+      "const": 1,
+      "description": "Configuration format version."
+    },
+    "ingress": { "$ref": "#/$defs/ingress" },
+    "dead_letter": { "$ref": "#/$defs/dead_letter" },
+    "lanes": { "$ref": "#/$defs/lanes" },
+    "sources": {
+      "type": "array",
+      "description": "Per-source policies, first match wins. A source no entry matches gets every default.",
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "queue_name": {
+      "type": "string",
+      "pattern": "^[a-z0-9._-]{1,64}$",
+      "description": "A queue declared in queues.json, with a visibility_ms."
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue"],
+      "properties": {
+        "queue": { "$ref": "#/$defs/queue_name" },
+        "tombstone_ttl_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2592000000,
+          "description": "How long a completed event keeps rejecting redeliveries, in milliseconds, when the queue backend cannot dedupe."
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 64,
+          "description": "Ingress messages taken per pipeline pass."
+        }
+      }
+    },
+    "dead_letter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue"],
+      "properties": {
+        "queue": { "$ref": "#/$defs/queue_name" }
+      }
+    },
+    "lanes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interactive", "actionable", "background", "digest"],
+      "properties": {
+        "interactive": { "$ref": "#/$defs/lane" },
+        "actionable": { "$ref": "#/$defs/lane" },
+        "background": { "$ref": "#/$defs/lane" },
+        "digest": { "$ref": "#/$defs/lane" }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue"],
+      "properties": {
+        "queue": { "$ref": "#/$defs/queue_name" },
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024,
+          "default": 4,
+          "description": "Turns of this lane in flight at once, across conversations."
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["match"],
+      "properties": {
+        "match": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An exact source (channel:telegram), a prefix ending in * (channel:*), or * for every source."
+        },
+        "ack": {
+          "enum": ["after_ingest", "after_dispatch", "after_turn"],
+          "default": "after_ingest",
+          "description": "When the platform may be acknowledged."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,86 @@
+//! Integration tests for the public crate surface.
+//!
+//! These tests link against the crate as a downstream consumer would: they can
+//! only use what `src/lib.rs` re-exports, plus the storage crate a host already
+//! has. A change that breaks a test here is a breaking change for users.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use std::sync::Arc;
+
+use tinyeventqueues::config::{SHIPPED_PIPELINE_JSON, parse_pipeline_config, shipped_manifest};
+use tinyeventqueues::{
+    CollectingSink, Disposition, Error, EventKind, InboundEvent, ManualClock, Pipeline, Reason,
+    Sender, tinyeventqueues_bus,
+};
+use tinystoragedrivers_core::queue::DocumentQueue;
+use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
+
+fn event(id: &str) -> InboundEvent {
+    InboundEvent::new(
+        "webhook:github",
+        id,
+        "repo-1",
+        Sender::new("octocat"),
+        EventKind::Trigger,
+        0,
+    )
+}
+
+#[tokio::test]
+async fn a_restarted_pipeline_rejects_a_redelivery() {
+    let clock = ManualClock::new(5_000);
+    let storage = MemoryStorage::with_clock(clock.clock())
+        .for_scope(&Scope::local())
+        .unwrap();
+    let docs = Arc::clone(storage.documents());
+    let build = || async {
+        let queues = Arc::new(DocumentQueue::new(&docs).with_clock(clock.clock()));
+        Pipeline::builder(queues, Arc::clone(&docs))
+            .clock(clock.clock())
+            .build()
+            .await
+            .unwrap()
+    };
+
+    let sink = Arc::new(CollectingSink::new());
+    let first = Pipeline::builder(
+        Arc::new(DocumentQueue::new(&docs).with_clock(clock.clock())),
+        Arc::clone(&docs),
+    )
+    .clock(clock.clock())
+    .sink(sink.clone())
+    .build()
+    .await
+    .unwrap();
+    let accepted = first.ingest(vec![event("delivery-1")]).await.unwrap();
+    assert_eq!(accepted.results[0].disposition, Disposition::Accepted);
+    assert_eq!(sink.outcomes()[0].reason, Reason::Ingested);
+
+    let restarted = build().await;
+    let again = restarted.ingest(vec![event("delivery-1")]).await.unwrap();
+    assert_eq!(again.results[0].disposition, Disposition::Duplicate);
+    assert_eq!(again.results[0].reason, Some(Reason::DuplicateRedelivery));
+}
+
+#[test]
+fn the_shipped_files_are_public_and_valid() {
+    assert_ne!(shipped_manifest().unwrap().queues.len(), 0);
+    let config = parse_pipeline_config(SHIPPED_PIPELINE_JSON).unwrap();
+    assert_eq!(config.version, 1);
+}
+
+#[test]
+fn config_errors_are_matchable() {
+    let error = parse_pipeline_config("{\"version\": 1}").unwrap_err();
+    assert!(matches!(error, Error::Config { .. }));
+}
+
+#[test]
+fn the_contract_is_reexported_as_the_same_types() {
+    let event: tinyeventqueues_bus::InboundEvent = event("1");
+    let _: InboundEvent = event;
+    assert!(tinyeventqueues::is_compatible(
+        tinyeventqueues::CONTRACT_VERSION
+    ));
+}

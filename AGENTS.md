@@ -4,63 +4,42 @@ This file is the single source of truth for how humans and coding agents work
 in this repository. `CLAUDE.md` is a symlink to this file, so every agent reads
 the same instructions.
 
-When you generate a new project from this template, keep this file and adapt
-the project-specific parts (crate name, module map, feature flags, commands).
-Delete guidance that no longer applies rather than leaving it to rot.
-
-## Template Checklist
-
-Do this once, in a single commit, before writing feature code:
-
-- [ ] Rename `crates/template` and `crates/template-bus` to the project's crate
-      names, and update `name` in each manifest plus the `template-bus` entry in
-      the root `[workspace.dependencies]`.
-- [ ] Set `description`, `keywords`, and `categories` in each manifest, and
-      `repository` in the root `[workspace.package]`.
-- [ ] Rename the crate references in `README.md`, both `src/lib.rs` files,
-      `crates/template/examples/`, and `crates/template/tests/` (search for
-      `template` and `template_bus`).
-- [ ] Replace the placeholder `greeting` module in both crates with the first
-      real feature area — payload types in the contract crate, behavior in the
-      module crate — keeping the `mod.rs` / `types.rs` / `test.rs` layout.
-- [ ] Confirm `license` and `LICENSE` match the project's intended license.
-- [ ] Update the security contact in `SECURITY.md`.
-- [ ] Rename the TinyBus interface, object path, and member constants in
-      `crates/template-bus/src/names/`, and the matching `provides` / `methods`
-      declarations in `crates/template/src/tinybus_module/`, while keeping
-      `vendor/tinybus` pinned.
-- [ ] Reset `CONTRACT_VERSION` in `crates/template-bus/src/version/` for the new
-      contract.
-- [ ] Replace `ROADMAP.md` with the real plan, or delete it.
-- [ ] Rewrite the "Project Structure" section below to describe this workspace.
+This repository is **tinyeventqueues**: external event management and
+queuing. It durably queues noisy inbound events and filters them before they
+reach an agent. The contract is `docs/specs/event-pipeline.md`; the delivery
+order is `docs/plans/event-pipeline.md`.
 
 ## Project Structure
 
 This is a Rust 2024 cargo workspace rooted at a virtual `Cargo.toml`. Every
-crate lives under `crates/`, one directory per package, each directory named for
-the package it holds. There is no root package: the crate that ships as the
-loadable module is `crates/template`, the same as any other member.
+crate lives under `crates/`, one directory per package.
 
 ```text
 Cargo.toml              # virtual workspace: members, [workspace.package],
                         # [workspace.dependencies], [workspace.lints]
+queues.json             # queue manifest: every queue and its spec (editable)
+pipeline.json           # pipeline tunables, queues by name (editable)
+schemas/                # JSON Schema for pipeline.json
 crates/
-├── template-bus/       # the wire contract: what crosses the bus, nothing else
-│   ├── README.md       # why the contract is its own crate
+├── tinyeventqueues-bus/   # the wire contract: what crosses the bus, nothing else
 │   └── src/
 │       ├── lib.rs      # crate docs + the entire public re-export surface
-│       ├── names/      # interface, object path, one constant per member
+│       ├── names/      # interface names, object paths, one constant per member
 │       ├── version/    # contract version and the host bind rule
-│       └── <family>/   # one directory per payload family
-└── template/           # the module: behavior, adapter, and the cdylib
+│       ├── event/      # the InboundEvent envelope
+│       ├── ops/        # member request/response payloads
+│       ├── host/       # host callback payloads (Turn, Deliver, ClassifySalience)
+│       ├── outcome/    # Disposition, Reason, Outcome
+│       └── config/     # PipelineConfig, the wire form of pipeline.json
+└── tinyeventqueues/       # the pipeline, the adapter, and the cdylib
     ├── src/
     │   ├── lib.rs      # crate docs + public surface, re-exporting the contract
-    │   ├── error/mod.rs      # crate-wide `Error` and `Result<T>`
-    │   ├── tinybus_module/   # TinyBus interface, ABI exports, integration tests
-    │   └── <feature>/        # one directory per feature area
-    │       ├── mod.rs        # module docs, wiring, smallest useful public API
-    │       ├── types.rs      # substantial type definitions
-    │       └── test.rs       # module-local unit tests
+    │   ├── error/      # crate-wide `Error` and `Result<T>`
+    │   ├── config/     # loading and validating queues.json / pipeline.json
+    │   ├── pipeline/   # `Pipeline` and `PipelineBuilder`
+    │   ├── <stage>/    # one directory per pipeline stage
+    │   ├── tinybus_module/   # TinyBus interface, ABI exports, bus tests
+    │   └── test_support.rs   # shared unit-test fixtures (cfg(test) only)
     ├── tests/          # integration tests against the public API only
     └── examples/       # runnable, compiled-in-CI usage examples
 vendor/tinybus/         # pinned TinyBus host types and module SDK
@@ -70,15 +49,38 @@ docs/
 └── adr/                # immutable architecture decision records
 ```
 
+### Configuration lives in JSON, not Rust
+
+Queue names and queue specs (attempts, dedupe windows, leases) are declared
+only in `queues.json`, a `tinystoragedrivers` `QueueManifest` the pipeline
+applies at construction. The pipeline's tunables are in `pipeline.json`,
+which refers to queues by name. Both are parsed strictly: an unknown field is
+an error, and every error names the offending field's JSON path. When you add
+a tunable, add it to the contract's `PipelineConfig` (with
+`deny_unknown_fields`), to `schemas/pipeline.schema.json`, to the shipped
+`pipeline.json`, and a range check with a field-path error in the module's
+`config` module — in the same commit. The tests check that the shipped files
+load, resolve against each other, and that the schema describes every field.
+
+### Storage
+
+The pipeline is generic over `Arc<dyn QueueStore>` and `Arc<dyn DocumentStore>`
+from `tinystoragedrivers-core`, plus an injectable `Clock`. Every piece of
+durable state lives in those two stores, so a new `Pipeline` over the same
+storage is a restart; tests simulate restarts exactly that way, on
+`MemoryStorage` with a `ManualClock`. `tinystoragedrivers-core` is a git
+dependency pinned to a tinyhumansai/tinystoragedrivers `rev`; move the pin in
+its own commit.
+
 ### The two-crate split
 
-`crates/template-bus` holds every type that crosses the bus and the names of the
+`crates/tinyeventqueues-bus` holds every type that crosses the bus and the names of the
 members that carry them. It has no transport, no runtime, and no behavior, and
 CI asserts it stays that way. A host that only makes calls depends on it alone.
 
-`crates/template` depends on it and re-exports all of it, so
-`template::GreetRequest` and `template_bus::GreetRequest` are the *same* type
-rather than structural twins. That direction is load-bearing: a parallel set of
+`crates/tinyeventqueues` depends on it and re-exports all of it, so
+`tinyeventqueues::InboundEvent` and `tinyeventqueues_bus::InboundEvent` are the
+*same* type rather than structural twins. That direction is load-bearing: a parallel set of
 payload types for hosts would mean a conversion at every call site that nothing
 checks.
 
@@ -99,22 +101,25 @@ workspace = true
 Each feature area belongs in a focused module directory under a crate's `src/`.
 A module root explains the module, wires its pieces together, and exposes the
 smallest useful API. Move substantial type definitions into `types.rs` and put
-module-local unit tests in a dedicated `test.rs`, wired from the bottom of the
-module root with:
+module-local unit tests in a sibling `mod_tests.rs` (or `<module>_tests.rs`
+beside a `<module>.rs`), wired from the bottom of the module root with:
 
 ```rust
 #[cfg(test)]
-mod test;
+#[path = "mod_tests.rs"]
+mod tests;
 ```
 
-Do not accumulate inline `mod tests` blocks in implementation files, and do not
-let a general-purpose `utils.rs` or `helpers.rs` grow — those are a symptom of a
+Never name a test file `test.rs`, `tests.rs` or `<module>_test.rs`, and never
+write an inline `#[cfg(test)] mod tests { ... }` block: OpenHuman vendors this
+repository, and its layout check rejects all of those. This deviates from the
+upstream rust-template on purpose. Do not let a general-purpose `utils.rs` or `helpers.rs` grow — those are a symptom of a
 missing module. Prefer many small modules that each do one thing well over few
 broad ones.
 
 Keep public exports centralized in each crate's `src/lib.rs` so downstream users
 have one predictable surface. Put shared error variants in
-`crates/template/src/error/mod.rs` and return the crate-wide `Result<T>` from
+`crates/tinyeventqueues/src/error/mod.rs` and return the crate-wide `Result<T>` from
 fallible public APIs.
 
 ## Build And Test
@@ -133,8 +138,8 @@ Supporting commands:
 
 - `cargo fmt --all` — format before committing.
 - `cargo test <filter>` — run a focused subset while iterating.
-- `cargo test -p template-bus` — run one crate's suite.
-- `cargo run -p template --example basic` — run the bundled example.
+- `cargo test -p tinyeventqueues-bus` — run one crate's suite.
+- `cargo run -p tinyeventqueues --example basic` — run the bundled example.
 - `cargo doc --no-deps --all-features` — build the rustdoc CI also builds with
   `RUSTDOCFLAGS="-D warnings"`.
 - `cargo test --doc` — run doctests alone when editing documentation examples.
@@ -185,7 +190,7 @@ add one:
 - gate anything optional behind a Cargo feature, documented in `Cargo.toml`;
 - declare it once in the root `[workspace.dependencies]` when more than one
   crate needs it, and take it with `{ workspace = true }`;
-- never add one to `crates/template-bus` that pulls in a transport, an async
+- never add one to `crates/tinyeventqueues-bus` that pulls in a transport, an async
   runtime, an HTTP client, or a native library — CI fails the build if you do;
 - leave a comment above the entry explaining *why* the crate is needed and what
   uses it — see the existing entries for the expected tone;
@@ -211,8 +216,9 @@ new module capability requires more.
 
 ## Testing
 
-- Module-local unit tests live in `crates/<crate>/src/<feature>/test.rs` and may
-  touch private items.
+- Module-local unit tests live in `crates/<crate>/src/<feature>/mod_tests.rs`
+  and may touch private items; shared fixtures are in
+  `crates/tinyeventqueues/src/test_support.rs`.
 - Integration tests live in `crates/<crate>/tests/` and exercise only the public
   API — they are the regression suite for the crate's contract.
 - Payload types pin their serde representation in a unit test. That
@@ -240,7 +246,7 @@ Write documentation for the reader who has never seen the code.
 
 - Every public item gets a rustdoc comment. `missing_docs` is a warning that CI
   treats as an error.
-- Start every `mod.rs` and `test.rs` with a concise module-level `//!`
+- Start every `mod.rs` and `mod_tests.rs` with a concise module-level `//!`
   description.
 - Each crate's `src/lib.rs` carries its crate-level overview: what the crate
   does, the primary entry points, and a short runnable example. It should also
@@ -295,7 +301,7 @@ Releases run from `.github/workflows/release.yml` via a manual
 an interrupted release after its version commit and tag exist. The workflow
 re-runs the full validation suite, computes the next version, updates
 the root `[workspace.package]` version and `Cargo.lock`, commits and tags
-`vX.Y.Z`, builds `crates/template` as a TinyBus module for every supported
+`vX.Y.Z`, builds `crates/tinyeventqueues` as a TinyBus module for every supported
 platform, pushes, and creates an immutable GitHub release with installable
 native packages.
 
