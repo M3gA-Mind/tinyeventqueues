@@ -21,8 +21,10 @@ The full contract is [`docs/specs/event-pipeline.md`](docs/specs/event-pipeline.
 delivery order is in [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline.md).
 Implemented so far: ingress with completion tombstones, the gate (sender
 lists, DM/group policy, self-echo, bot-loop guard, durable token buckets,
-ambient context), the durable debounce buffer, the outcome ledger, dead
-letters (`ListDead` / `Redrive`), configuration, and the TinyBus adapter.
+ambient context), the durable debounce buffer, salience with SimHash
+habituation and borderline host classification, the attention lanes with
+overflow spilling to a folded digest, the outcome ledger, dead letters
+(`ListDead` / `Redrive`), configuration, and the TinyBus adapter.
 
 ## Configuration
 
@@ -32,7 +34,7 @@ or misspelt field is an error naming its JSON path.
 | File | What it holds | Schema |
 | --- | --- | --- |
 | [`queues.json`](queues.json) | Every queue the pipeline uses (ingress, the four lanes, dead letters) with `max_attempts`, `dedupe_window_ms` and `visibility_ms` — a tinystoragedrivers `QueueManifest`, applied at construction | `schemas/queues.schema.json` in tinystoragedrivers |
-| [`pipeline.json`](pipeline.json) | The pipeline's tunables: which queue plays which role, lane concurrency, per-source ack policy, tombstone TTL, batch size, gate (sender lists, DM/group policy, bot-loop guard, rate limits, ambient buffer) and coalescing (debounce, max wait, control prefixes) | [`schemas/pipeline.schema.json`](schemas/pipeline.schema.json) |
+| [`pipeline.json`](pipeline.json) | The pipeline's tunables: which queue plays which role, lane concurrency, per-source ack policy, tombstone TTL, batch size, gate (sender lists, DM/group policy, bot-loop guard, rate limits, ambient buffer) coalescing (debounce, max wait, control prefixes), salience (weights, keywords, known contacts, lane thresholds, borderline band, habituation), lane backlog limits and the digest | [`schemas/pipeline.schema.json`](schemas/pipeline.schema.json) |
 
 No queue name or queue spec is written in Rust. To add or tune a queue, edit
 `queues.json`; to route a role to it, edit `pipeline.json`.
@@ -77,7 +79,10 @@ crates/
         ├── ingress/       # validate, persist, recognize redeliveries
         ├── gate/          # deterministic checks, token buckets, ambient context
         ├── coalesce/      # the durable debounce buffer
+        ├── salience/      # rule scores, SimHash habituation, lane thresholds
+        ├── digest/        # the digest accumulator
         ├── turn/          # pending turns and the lane writer
+        ├── host/          # the `Host` callback trait
         ├── store/         # collections, tombstones, the outcome ledger
         ├── dead/          # parking, listing and redriving dead work
         ├── pipeline/      # `Pipeline` and its builder

@@ -32,7 +32,7 @@ impl Fixture {
     /// A queue backend that reports `dedupe` as given and, without it,
     /// ignores dedupe keys the way a broker would.
     pub(crate) fn with_dedupe(dedupe: bool) -> Self {
-        let clock = ManualClock::new(1_000_000);
+        let clock = ManualClock::new(START_MS);
         let storage = MemoryStorage::with_clock(clock.clock())
             .for_scope(&Scope::local())
             .unwrap();
@@ -61,7 +61,10 @@ impl Fixture {
     }
 }
 
-/// An event from a human in a group conversation.
+/// Where every [`Fixture`] clock starts.
+pub(crate) const START_MS: u64 = 1_000_000;
+
+/// An event from a human in a group conversation, received at [`START_MS`].
 pub(crate) fn event(source: &str, id: &str, conversation: &str) -> InboundEvent {
     InboundEvent::new(
         source,
@@ -69,9 +72,9 @@ pub(crate) fn event(source: &str, id: &str, conversation: &str) -> InboundEvent 
         conversation,
         Sender::new("user-1"),
         EventKind::Message,
-        0,
+        START_MS,
     )
-    .text(format!("message {id}"))
+    .text(format!("message {id} {}", words(id)))
 }
 
 /// A queue backend without dedupe: a broker such as `RabbitMQ`.
@@ -155,4 +158,26 @@ pub(crate) async fn take_turns(
             fixture.queues.ack(&queue, &delivery.receipt).await.unwrap();
         }
     }
+}
+
+/// A few words derived from `id`, so test events' texts are not
+/// near-duplicates of each other (which would habituate their scores).
+fn words(id: &str) -> String {
+    const WORDS: [&str; 16] = [
+        "amber", "birch", "cobalt", "delta", "ember", "fjord", "garnet", "harbor", "iris",
+        "juniper", "kelp", "lumen", "maple", "nectar", "onyx", "prism",
+    ];
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in id.bytes() {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    (0..6)
+        .map(|_| {
+            hash = hash
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            WORDS[usize::try_from(hash >> 60).unwrap()]
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

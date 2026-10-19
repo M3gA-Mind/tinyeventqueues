@@ -14,11 +14,11 @@ the delivery order is [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline
 - the TinyBus adapter over in-process storage
 - the gate (allow/deny, DM/group policy, self-echo, bot-loop guard, durable
   token buckets), ambient context, and the durable debounce buffer
+- salience with habituation and borderline host classification; lanes with
+  overflow spilling to a folded digest
 
 ## Next
 
-- salience with habituation and borderline host classification; lanes and
-  digest spill
 - cadence scheduler with ingestion budgets and overflow folding
 - dispatch through `Deliver`, retries and dead letters; the no-loss property
   test and a 10,000-event flood test

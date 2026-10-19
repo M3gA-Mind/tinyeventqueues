@@ -20,6 +20,7 @@ use std::path::Path;
 use tinyeventqueues_bus::{Lane, PipelineConfig};
 use tinystoragedrivers_core::queue::QueueManifest;
 
+use crate::salience::MAX_SCORE;
 use crate::{Error, Result};
 
 pub use types::{QueueRef, ResolvedQueues};
@@ -149,8 +150,16 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
                 format!("must be 1 to {MAX_CONCURRENCY}"),
             ));
         }
+        if config.lanes.get(lane).max_backlog == 0 {
+            return Err(Error::config(
+                format!("lanes.{}.max_backlog", lane.as_str()),
+                "must be at least 1",
+            ));
+        }
     }
     check_gate(config)?;
+    check_salience(config)?;
+    check_digest(config)?;
     for (index, prefix) in config.coalesce.control_prefixes.iter().enumerate() {
         if prefix.is_empty() {
             return Err(Error::config(
@@ -166,6 +175,12 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
             return Err(Error::config(
                 format!("sources[{index}].match"),
                 "must be a source, a prefix ending in `*`, or `*`",
+            ));
+        }
+        if !(-100..=100).contains(&source.weight) {
+            return Err(Error::config(
+                format!("sources[{index}].weight"),
+                "must be -100 to 100",
             ));
         }
     }
@@ -228,6 +243,110 @@ fn check_gate(config: &PipelineConfig) -> Result<()> {
     }
     Ok(())
 }
+
+fn check_salience(config: &PipelineConfig) -> Result<()> {
+    let salience = &config.salience;
+    let weights = &salience.weights;
+    for (name, value) in [
+        ("base", weights.base),
+        ("addressed", weights.addressed),
+        ("direct", weights.direct),
+        ("known_contact", weights.known_contact),
+        ("keyword", weights.keyword),
+        ("age_penalty_per_minute", weights.age_penalty_per_minute),
+        ("max_age_penalty", weights.max_age_penalty),
+    ] {
+        if value > MAX_SCORE {
+            return Err(Error::config(
+                format!("salience.weights.{name}"),
+                format!("must be 0 to {MAX_SCORE}"),
+            ));
+        }
+    }
+    for (list, entries) in [
+        ("keywords", &salience.keywords),
+        ("known_contacts", &salience.known_contacts),
+    ] {
+        if let Some(index) = entries.iter().position(String::is_empty) {
+            return Err(Error::config(
+                format!("salience.{list}[{index}]"),
+                "must not be empty",
+            ));
+        }
+    }
+    let thresholds = &salience.thresholds;
+    if thresholds.interactive > MAX_SCORE {
+        return Err(Error::config(
+            "salience.thresholds.interactive",
+            format!("must be 0 to {MAX_SCORE}"),
+        ));
+    }
+    if thresholds.actionable > thresholds.interactive {
+        return Err(Error::config(
+            "salience.thresholds.actionable",
+            "must not exceed salience.thresholds.interactive",
+        ));
+    }
+    if thresholds.background > thresholds.actionable {
+        return Err(Error::config(
+            "salience.thresholds.background",
+            "must not exceed salience.thresholds.actionable",
+        ));
+    }
+    if let Some(band) = salience.borderline
+        && (band.low >= band.high || band.high > MAX_SCORE + 1)
+    {
+        return Err(Error::config(
+            "salience.borderline",
+            format!("needs low < high <= {}", MAX_SCORE + 1),
+        ));
+    }
+    let habituation = &salience.habituation;
+    if !(1..=MAX_HABITUATION_WINDOW).contains(&habituation.window) {
+        return Err(Error::config(
+            "salience.habituation.window",
+            format!("must be 1 to {MAX_HABITUATION_WINDOW}"),
+        ));
+    }
+    if habituation.window_ms == 0 {
+        return Err(Error::config(
+            "salience.habituation.window_ms",
+            "must be at least 1",
+        ));
+    }
+    if habituation.max_distance > 64 {
+        return Err(Error::config(
+            "salience.habituation.max_distance",
+            "must be 0 to 64",
+        ));
+    }
+    if habituation.decay_percent > 100 {
+        return Err(Error::config(
+            "salience.habituation.decay_percent",
+            "must be 0 to 100",
+        ));
+    }
+    Ok(())
+}
+
+fn check_digest(config: &PipelineConfig) -> Result<()> {
+    if !(1..=MAX_DIGEST_ITEMS).contains(&config.digest.max_items) {
+        return Err(Error::config(
+            "digest.max_items",
+            format!("must be 1 to {MAX_DIGEST_ITEMS}"),
+        ));
+    }
+    if config.digest.max_wait_ms == 0 {
+        return Err(Error::config("digest.max_wait_ms", "must be at least 1"));
+    }
+    Ok(())
+}
+
+/// The most fingerprints habituation keeps per source.
+const MAX_HABITUATION_WINDOW: u32 = 1_024;
+
+/// The most events one digest turn carries.
+const MAX_DIGEST_ITEMS: u32 = 10_000;
 
 /// Resolve every queue the configuration names against the manifest.
 ///

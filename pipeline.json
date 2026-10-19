@@ -12,41 +12,50 @@
   "lanes": {
     "interactive": {
       "queue": "teq.lane.interactive",
-      "concurrency": 8
+      "concurrency": 8,
+      "max_backlog": 1000
     },
     "actionable": {
       "queue": "teq.lane.actionable",
-      "concurrency": 4
+      "concurrency": 4,
+      "max_backlog": 1000
     },
     "background": {
       "queue": "teq.lane.background",
-      "concurrency": 2
+      "concurrency": 2,
+      "max_backlog": 1000
     },
     "digest": {
       "queue": "teq.lane.digest",
-      "concurrency": 1
+      "concurrency": 1,
+      "max_backlog": 1000
     }
   },
   "sources": [
     {
       "match": "web:*",
-      "ack": "after_ingest"
+      "ack": "after_ingest",
+      "weight": 50
     },
     {
       "match": "channel:*",
-      "ack": "after_ingest"
+      "ack": "after_ingest",
+      "weight": 0
     },
     {
       "match": "composio:*",
-      "ack": "after_ingest"
+      "ack": "after_ingest",
+      "weight": 0
     },
     {
       "match": "webhook:*",
-      "ack": "after_ingest"
+      "ack": "after_ingest",
+      "weight": -5
     },
     {
       "match": "*",
-      "ack": "after_ingest"
+      "ack": "after_ingest",
+      "weight": 0
     }
   ],
   "gate": {
@@ -82,5 +91,46 @@
     "control_prefixes": [
       "/"
     ]
+  },
+  "salience": {
+    "weights": {
+      "base": 25,
+      "addressed": 50,
+      "direct": 50,
+      "known_contact": 15,
+      "keyword": 20,
+      "age_penalty_per_minute": 1,
+      "max_age_penalty": 20
+    },
+    "keywords": [
+      "urgent",
+      "asap",
+      "help",
+      "error",
+      "failed",
+      "down",
+      "outage"
+    ],
+    "known_contacts": [],
+    "thresholds": {
+      "interactive": 70,
+      "actionable": 40,
+      "background": 15
+    },
+    "borderline": {
+      "low": 30,
+      "high": 45,
+      "budget_per_hour": 120
+    },
+    "habituation": {
+      "window": 64,
+      "window_ms": 3600000,
+      "max_distance": 3,
+      "decay_percent": 40
+    }
+  },
+  "digest": {
+    "max_items": 200,
+    "max_wait_ms": 600000
   }
 }

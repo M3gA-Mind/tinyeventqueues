@@ -23,10 +23,11 @@ mod buckets;
 
 use std::sync::Arc;
 
-use tinyeventqueues_bus::{EventKind, GateConfig, InboundEvent, Reason};
+use tinyeventqueues_bus::{EventKind, GateConfig, InboundEvent, RateLimit, Reason};
 use tinystoragedrivers_core::DocumentStore;
 
 use crate::Result;
+use crate::salience::names_sender;
 
 pub(crate) use ambient::Ambient;
 use buckets::Buckets;
@@ -42,14 +43,6 @@ pub(crate) enum Verdict {
     Spill(Reason),
     /// Drop, with why.
     Drop(Reason),
-}
-
-/// Whether `entries` names `event`'s sender, as an id or `<source>/<id>`.
-fn names_sender(entries: &[String], event: &InboundEvent) -> bool {
-    entries.iter().any(|entry| match entry.split_once('/') {
-        Some((source, id)) if source == event.source => id == event.sender.id,
-        _ => *entry == event.sender.id,
-    })
 }
 
 /// Chat traffic that only matters to the agent when aimed at it. Triggers and
@@ -74,6 +67,16 @@ impl Gate {
         Ok(Self {
             buckets: Buckets::new(docs)?,
         })
+    }
+
+    /// Take one host classification from an hourly budget of
+    /// `budget_per_hour`. Returns `false` when the budget is spent.
+    pub(crate) async fn classify_budget(&self, budget_per_hour: u32, now: u64) -> Result<bool> {
+        if budget_per_hour == 0 {
+            return Ok(false);
+        }
+        let limit = RateLimit::new(budget_per_hour, (budget_per_hour / 60).max(1));
+        self.buckets.take("classify", "", "", limit, now).await
     }
 
     /// Judge `event` under `config` at `now`.

@@ -41,6 +41,12 @@
     },
     "coalesce": {
       "$ref": "#/$defs/coalesce"
+    },
+    "salience": {
+      "$ref": "#/$defs/salience"
+    },
+    "digest": {
+      "$ref": "#/$defs/digest"
     }
   },
   "$defs": {
@@ -126,6 +132,12 @@
           "maximum": 1024,
           "default": 4,
           "description": "Turns of this lane in flight at once, across conversations."
+        },
+        "max_backlog": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000,
+          "description": "Turns the lane may hold waiting; past it, new work spills to the digest (lane_overflow). Ignored for the digest lane."
         }
       }
     },
@@ -149,6 +161,13 @@
           ],
           "default": "after_ingest",
           "description": "When the platform may be acknowledged."
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": -100,
+          "maximum": 100,
+          "default": 0,
+          "description": "Salience points the source adds, or takes away when negative."
         }
       }
     },
@@ -288,6 +307,200 @@
             "/"
           ],
           "description": "Text prefixes that mark a control command, which flushes at once."
+        }
+      }
+    },
+    "salience": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How much an event deserves attention (0-100) and which lane that earns it.",
+      "properties": {
+        "weights": {
+          "$ref": "#/$defs/salience_weights"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Words that mark an event as worth attention, case-insensitive."
+        },
+        "known_contacts": {
+          "$ref": "#/$defs/sender_list",
+          "description": "Senders the agent knows."
+        },
+        "thresholds": {
+          "$ref": "#/$defs/salience_thresholds"
+        },
+        "borderline": {
+          "$ref": "#/$defs/borderline"
+        },
+        "habituation": {
+          "$ref": "#/$defs/habituation"
+        }
+      }
+    },
+    "salience_weights": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 25,
+          "description": "Points every event starts with."
+        },
+        "addressed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 50,
+          "description": "Addressed to the agent, or a mention."
+        },
+        "direct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 50,
+          "description": "A direct message."
+        },
+        "known_contact": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 15,
+          "description": "A known contact."
+        },
+        "keyword": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 20,
+          "description": "The text holds a keyword."
+        },
+        "age_penalty_per_minute": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 1,
+          "description": "Points lost per minute of age."
+        },
+        "max_age_penalty": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 20,
+          "description": "The most points age can cost."
+        }
+      }
+    },
+    "salience_thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The lowest score of each lane, interactive >= actionable >= background. Below background an event is noise and goes to the digest.",
+      "properties": {
+        "interactive": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 70,
+          "description": "Lowest interactive score."
+        },
+        "actionable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 40,
+          "description": "Lowest actionable score."
+        },
+        "background": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 15,
+          "description": "Lowest background score."
+        }
+      }
+    },
+    "borderline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "low",
+        "high",
+        "budget_per_hour"
+      ],
+      "description": "Scores in low..high are classified by the host's ClassifySalience, within an hourly budget.",
+      "properties": {
+        "low": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "high": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 101
+        },
+        "budget_per_hour": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "habituation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Content a source repeats loses salience.",
+      "properties": {
+        "window": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024,
+          "default": 64,
+          "description": "Fingerprints kept per source."
+        },
+        "window_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3600000,
+          "description": "How long a fingerprint counts."
+        },
+        "max_distance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "default": 3,
+          "description": "Most differing SimHash bits for a near-duplicate."
+        },
+        "decay_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 40,
+          "description": "Share of the score each near-duplicate takes."
+        }
+      }
+    },
+    "digest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Spilled, overflowing and noisy events gather here and go out as one digest turn.",
+      "properties": {
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 200,
+          "description": "Release a digest turn at this many events."
+        },
+        "max_wait_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 600000,
+          "description": "Release a digest turn this long after its first event at the latest."
         }
       }
     }
