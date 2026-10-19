@@ -53,6 +53,8 @@ pub mod host;
 pub mod names;
 pub mod ops;
 pub mod outcome;
+#[cfg(feature = "storage")]
+pub mod storage;
 pub mod version;
 
 pub use config::{
