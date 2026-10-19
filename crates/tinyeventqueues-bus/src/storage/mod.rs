@@ -90,7 +90,10 @@ pub fn collection_specs() -> Vec<CollectionSpec> {
 /// grammar, which the tests pin.
 #[must_use]
 pub fn storage_schema() -> Schema {
-    #[allow(clippy::expect_used)]
+    #[allow(
+        clippy::expect_used,
+        reason = "`Owner::new` is fallible only for a malformed name; `teq` is a constant the tests pin"
+    )]
     let owner = Owner::new(OWNER).expect("`teq` is a valid schema owner");
     collection_specs()
         .into_iter()
