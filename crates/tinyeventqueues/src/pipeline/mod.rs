@@ -12,6 +12,7 @@
 //! Work advances in passes: [`Pipeline::drain`] runs one.
 
 mod builder;
+mod dispatch;
 mod pass;
 
 use std::sync::{Arc, RwLock};
@@ -33,7 +34,7 @@ use crate::host::Host;
 use crate::ingress::Ingress;
 use crate::salience::Habituation;
 use crate::store::{Ledger, Tombstones};
-use crate::turn::Lanes;
+use crate::turn::{Conversations, Lanes};
 
 pub use builder::PipelineBuilder;
 
@@ -66,6 +67,7 @@ struct Inner {
     habituation: Habituation,
     digest: Digest,
     scheduler: Scheduler,
+    conversations: Conversations,
     host: Option<Arc<dyn Host>>,
     consumer: String,
 }
@@ -213,8 +215,10 @@ impl Pipeline {
         report.flushed = self.flush_due(&running, now).await?;
         report.scheduled = self.release_staged(&running, now).await?;
         self.release_digest(&running, now).await?;
+        let (dispatched, dead) = self.dispatch(&running, now).await?;
+        report.dispatched = dispatched;
         self.inner.dead.settle(&running.queues.dead).await?;
-        report.dead = self.inner.dead.sweep(&running.queues, now, ttl).await?;
+        report.dead = dead + self.inner.dead.sweep(&running.queues, now, ttl).await?;
         report.pruned =
             self.inner.tombstones.prune(now).await? + self.inner.ledger.prune(now).await?;
         Ok(report)
@@ -224,3 +228,7 @@ impl Pipeline {
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "invariants_tests.rs"]
+mod invariants;

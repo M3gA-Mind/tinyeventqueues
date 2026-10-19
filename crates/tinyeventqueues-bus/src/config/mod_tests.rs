@@ -188,3 +188,11 @@ fn cadences_and_budgets_are_optional() {
         (3, 5_000)
     );
 }
+
+#[test]
+fn dispatch_defaults_when_absent() {
+    let config: PipelineConfig = serde_json::from_value(minimal()).unwrap();
+    assert_eq!(config.dispatch.backoff_base_ms, 1_000);
+    assert_eq!(config.dispatch.backoff_max_ms, 300_000);
+    assert_eq!(config.dispatch.gap_timeout_ms, 120_000);
+}

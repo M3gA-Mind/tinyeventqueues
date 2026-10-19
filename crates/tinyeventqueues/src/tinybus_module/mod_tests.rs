@@ -11,12 +11,13 @@ use tinyeventqueues_bus::{
     RedriveResponse, Sender, StatsRequest, StatsResponse, names,
 };
 
-use super::{EventQueuesService, memory_pipeline, setup};
+use super::{BusHost, EventQueuesService, memory_pipeline, setup};
+use crate::Host;
 
 #[tokio::test]
 async fn declared_methods_match_the_dispatch_table() {
     let service = EventQueuesService {
-        pipeline: memory_pipeline().await.unwrap(),
+        pipeline: memory_pipeline(None).await.unwrap(),
     };
     let methods = service
         .members()
@@ -128,4 +129,109 @@ async fn an_invalid_configuration_is_refused_over_the_bus() {
             .to_string()
             .contains("lanes.digest.queue")
     );
+}
+
+/// A host serving the callback interface on the bus, accepting every turn.
+#[derive(Clone, Default)]
+struct FakeHost {
+    turns: std::sync::Arc<std::sync::Mutex<Vec<tinyeventqueues_bus::Turn>>>,
+}
+
+#[tinybus::interface(name = "ai.tinyhumans.tinyeventqueues.Host")]
+impl FakeHost {
+    async fn classify_salience(
+        &self,
+        _request: tinyeventqueues_bus::ClassifySalienceRequest,
+    ) -> tinybus::Result<tinyeventqueues_bus::ClassifySalienceResponse> {
+        std::future::ready(Ok(tinyeventqueues_bus::ClassifySalienceResponse::new(
+            tinyeventqueues_bus::SalienceClass::Urgent,
+        )))
+        .await
+    }
+
+    async fn deliver(
+        &self,
+        request: tinyeventqueues_bus::DeliverRequest,
+    ) -> tinybus::Result<tinyeventqueues_bus::DeliverResponse> {
+        self.turns.lock().unwrap().push(request.turn);
+        std::future::ready(Ok(tinyeventqueues_bus::DeliverResponse::new(
+            tinyeventqueues_bus::DeliverStatus::Accepted,
+        )))
+        .await
+    }
+}
+
+#[test]
+fn the_host_interface_matches_the_contract() {
+    let host = FakeHost::default();
+    let methods: Vec<_> = host.members().into_iter().map(|m| m.to_string()).collect();
+    assert_eq!(methods, names::host::METHODS.to_vec());
+    assert_eq!(host.name().to_string(), names::host::INTERFACE);
+}
+
+#[tokio::test]
+async fn turns_are_delivered_to_the_host_over_the_bus() {
+    let bus = MemoryBus::new();
+    Broker::new().spawn(bus.clone());
+    let host_side = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let host = FakeHost::default();
+    host_side
+        .serve_at(names::host::OBJECT_PATH.try_into().unwrap(), host.clone())
+        .await
+        .unwrap();
+    host_side
+        .request_name(names::host::INTERFACE)
+        .await
+        .unwrap();
+    let service = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    setup(service.clone()).await.unwrap();
+    let proxy = host_side
+        .proxy(names::INTERFACE, names::OBJECT_PATH, names::INTERFACE)
+        .unwrap();
+
+    let event = InboundEvent::new(
+        "web:chat",
+        "1",
+        "c",
+        Sender::new("u"),
+        EventKind::Message,
+        0,
+    )
+    .direct(true)
+    .text("/help");
+    let _: IngestResponse = proxy
+        .call(names::methods::INGEST, (IngestRequest::new(vec![event]),))
+        .await
+        .unwrap();
+    let drained: DrainResponse = proxy
+        .call(names::methods::DRAIN, (DrainRequest::new(),))
+        .await
+        .unwrap();
+    assert_eq!(drained.report.dispatched, 1);
+    let turns = host.turns.lock().unwrap().clone();
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].events[0].event_id, "1");
+}
+
+#[tokio::test]
+async fn an_absent_host_makes_delivery_back_off() {
+    let bus = MemoryBus::new();
+    Broker::new().spawn(bus.clone());
+    let service = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let bus_host = BusHost {
+        connection: service.clone(),
+    };
+    assert!(format!("{bus_host:?}").contains("BusHost"));
+    let request = tinyeventqueues_bus::ClassifySalienceRequest::new(
+        InboundEvent::new("s", "1", "c", Sender::new("u"), EventKind::Message, 0),
+        30,
+    );
+    let error = bus_host.classify_salience(request).await.unwrap_err();
+    assert!(error.to_string().contains("ClassifySalience"));
 }

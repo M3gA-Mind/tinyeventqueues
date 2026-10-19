@@ -149,5 +149,10 @@
   "digest": {
     "max_items": 200,
     "max_wait_ms": 600000
+  },
+  "dispatch": {
+    "backoff_base_ms": 1000,
+    "backoff_max_ms": 300000,
+    "gap_timeout_ms": 120000
   }
 }

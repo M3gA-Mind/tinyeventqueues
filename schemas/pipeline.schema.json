@@ -47,6 +47,9 @@
     },
     "digest": {
       "$ref": "#/$defs/digest"
+    },
+    "dispatch": {
+      "$ref": "#/$defs/dispatch"
     }
   },
   "$defs": {
@@ -545,6 +548,31 @@
           "minimum": 1,
           "default": 5000,
           "description": "An instant cadence over budget holds new turns this long, folding each conversation's events into one."
+        }
+      }
+    },
+    "dispatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Delivery to the host. Retries back off exponentially; a turn that uses up its lane queue's manifest max_attempts is dead-lettered.",
+      "properties": {
+        "backoff_base_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1000,
+          "description": "The first retry delay."
+        },
+        "backoff_max_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 300000,
+          "description": "The longest retry delay; at least backoff_base_ms."
+        },
+        "gap_timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 120000,
+          "description": "On a queue backend without groups, how long a conversation waits for a turn lost to a crash before skipping it."
         }
       }
     }
