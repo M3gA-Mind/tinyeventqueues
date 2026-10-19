@@ -193,7 +193,9 @@ impl DeadLetters {
             return Err(Error::UnknownDeadItem(id.to_owned()));
         }
         let mut copy = NewMessage::new(parked.payload.clone());
-        copy.group.clone_from(&parked.group);
+        if self.queues.features().groups {
+            copy.group.clone_from(&parked.group);
+        }
         self.queues.enqueue(&parked.origin, &[copy]).await?;
         self.forget(&parked.events).await?;
         self.docs

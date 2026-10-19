@@ -10,6 +10,7 @@ use tinyeventqueues_bus::{AckPolicy, Disposition, Reason, SourcePolicy};
 use super::*;
 use crate::observe::CollectingSink;
 use crate::test_support::{Fixture, event};
+use tinystoragedrivers_core::queue::NewMessage;
 
 #[test]
 fn envelopes_with_empty_or_oversized_keys_are_invalid() {
@@ -91,7 +92,7 @@ async fn the_ack_policy_of_the_source_decides_platform_acknowledgement() {
 #[tokio::test]
 async fn a_repeat_within_one_request_is_a_duplicate_on_both_backends() {
     for dedupe in [true, false] {
-        let fixture = Fixture::with_dedupe(dedupe);
+        let fixture = Fixture::with_native(dedupe);
         let pipeline = fixture.pipeline().await;
         let response = pipeline
             .ingest(vec![event("s", "1", "c"), event("s", "1", "c")])
@@ -101,20 +102,20 @@ async fn a_repeat_within_one_request_is_a_duplicate_on_both_backends() {
         assert_eq!(
             dispositions,
             [Disposition::Accepted, Disposition::Duplicate],
-            "dedupe={dedupe}"
+            "native={dedupe}"
         );
         let stats = fixture
             .queues
             .stats(&pipeline.queues().ingress.name)
             .await
             .unwrap();
-        assert_eq!(stats.ready, 1, "dedupe={dedupe}");
+        assert_eq!(stats.ready, 1, "native={dedupe}");
     }
 }
 
 #[tokio::test]
 async fn without_native_dedupe_a_completed_event_is_recognized_by_its_outcome() {
-    let fixture = Fixture::with_dedupe(false);
+    let fixture = Fixture::with_native(false);
     let pipeline = fixture.pipeline().await;
     let ttl = pipeline.config().ingress.tombstone_ttl_ms;
     let done = event("s", "1", "c");
@@ -146,7 +147,7 @@ async fn an_empty_request_stores_nothing() {
 async fn the_broker_double_passes_every_call_through() {
     use tinystoragedrivers_core::queue::Retry;
 
-    let fixture = Fixture::with_dedupe(false);
+    let fixture = Fixture::with_native(false);
     let pipeline = fixture.pipeline().await;
     let queue = pipeline.queues().ingress.name;
     pipeline.ingest(vec![event("s", "1", "c")]).await.unwrap();
@@ -168,4 +169,27 @@ async fn the_broker_double_passes_every_call_through() {
     let dead = fixture.queues.dead_letters(&queue, 10).await.unwrap();
     assert!(fixture.queues.redrive(&queue, &dead[0].id).await.unwrap());
     assert_eq!(fixture.queues.purge(&queue).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn the_broker_double_refuses_groups_and_dedupe_keys() {
+    let fixture = Fixture::with_native(false);
+    let pipeline = fixture.pipeline().await;
+    let queue = pipeline.queues().ingress.name;
+    let features = fixture.queues.features();
+    assert!(!features.dedupe && !features.groups);
+    for message in [
+        NewMessage::new(json!({})).group("g"),
+        NewMessage::new(json!({})).dedupe_key("k"),
+    ] {
+        let error = fixture
+            .queues
+            .enqueue(&queue, &[message])
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            tinystoragedrivers_core::ErrorKind::InvalidInput
+        );
+    }
 }
