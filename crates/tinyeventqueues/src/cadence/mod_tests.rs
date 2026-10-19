@@ -200,9 +200,9 @@ async fn staging_folds_a_threads_events_into_one_entry() {
     assert_eq!(scheduler.due(600_000).await.unwrap().len(), 1);
     scheduler.defer(&waiting[0], 700_000).await.unwrap();
     assert_eq!(scheduler.due(600_000).await.unwrap().len(), 0);
-    assert!(scheduler.entry_of(&resolved, &one).await.unwrap().is_some());
+    assert!(scheduler.entry_of(&one).await.unwrap().is_some());
     scheduler.remove(&waiting[0]).await.unwrap();
-    assert!(scheduler.entry_of(&resolved, &one).await.unwrap().is_none());
+    assert!(scheduler.entry_of(&one).await.unwrap().is_none());
 }
 
 #[test]

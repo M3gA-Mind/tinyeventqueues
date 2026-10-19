@@ -51,6 +51,7 @@ async fn enqueueing_a_turn_twice_stores_it_once_in_its_conversation_group() {
     let lanes = Lanes::new(
         Arc::clone(&fixture.queues),
         crate::store::Tombstones::new(Arc::clone(&fixture.docs)),
+        Conversations::new(&fixture.docs).unwrap(),
     );
     let turn = PendingTurn::new(
         Lane::Actionable,
@@ -81,6 +82,7 @@ async fn an_empty_turn_has_no_group() {
     let lanes = Lanes::new(
         Arc::clone(&fixture.queues),
         crate::store::Tombstones::new(Arc::clone(&fixture.docs)),
+        Conversations::new(&fixture.docs).unwrap(),
     );
     let turn = PendingTurn::new(Lane::Digest, Reason::LaneOverflow, vec![], vec![], 0).unwrap();
     assert!(lanes.enqueue(&queue, &turn, 0, 1_000).await.unwrap());
@@ -100,6 +102,7 @@ async fn without_dedupe_or_groups_a_turn_is_stored_once_and_ungrouped() {
     let lanes = Lanes::new(
         Arc::clone(&fixture.queues),
         crate::store::Tombstones::new(Arc::clone(&fixture.docs)),
+        Conversations::new(&fixture.docs).unwrap(),
     );
     let turn = PendingTurn::new(
         Lane::Actionable,
@@ -118,4 +121,46 @@ async fn without_dedupe_or_groups_a_turn_is_stored_once_and_ungrouped() {
         .unwrap();
     assert_eq!(got.len(), 1);
     assert_eq!(got[0].group, None);
+}
+
+#[tokio::test]
+async fn conversation_order_without_groups() {
+    let fixture = Fixture::new();
+    crate::store::ensure(fixture.docs.as_ref()).await.unwrap();
+    let conversations = Conversations::new(&fixture.docs).unwrap();
+    assert_eq!(conversations.assign("c").await.unwrap(), 1);
+    assert_eq!(conversations.assign("c").await.unwrap(), 2);
+    assert_eq!(
+        conversations.check("c", 2, 100, 0).await.unwrap(),
+        Turnstile::Wait
+    );
+    assert_eq!(
+        conversations.check("c", 1, 100, 0).await.unwrap(),
+        Turnstile::Go
+    );
+    // Seen and backing off: a later turn waits past the gap timeout.
+    assert_eq!(
+        conversations.check("c", 1, 100, 10).await.unwrap(),
+        Turnstile::Go
+    );
+    assert_eq!(
+        conversations.check("c", 2, 100, 500).await.unwrap(),
+        Turnstile::Wait
+    );
+    conversations.finish("c", 1).await.unwrap();
+    conversations.finish("c", 1).await.unwrap();
+    assert_eq!(
+        conversations.check("c", 1, 100, 600).await.unwrap(),
+        Turnstile::Done
+    );
+    assert_eq!(
+        conversations.check("c", 2, 100, 600).await.unwrap(),
+        Turnstile::Go
+    );
+    // A conversation never seen starts at the turn that arrives.
+    assert_eq!(
+        conversations.check("new", 7, 100, 0).await.unwrap(),
+        Turnstile::Go
+    );
+    conversations.finish("none", 1).await.unwrap();
 }

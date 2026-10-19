@@ -23,7 +23,7 @@ use crate::ingress::Ingress;
 use crate::observe::{NoopSink, OutcomeSink};
 use crate::salience::Habituation;
 use crate::store::{self, Ledger, Tombstones};
-use crate::turn::Lanes;
+use crate::turn::{Conversations, Lanes, Threads};
 use crate::{Error, Result};
 
 /// Where a file-backed setting comes from.
@@ -169,7 +169,12 @@ impl PipelineBuilder {
         let gate = Gate::new(&self.docs)?;
         let ambient = Ambient::new(&self.docs)?;
         let coalescer = Coalescer::new(&self.docs)?;
-        let lanes = Lanes::new(Arc::clone(&self.queues), tombstones.clone());
+        let conversations = Conversations::new(&self.docs)?;
+        let lanes = Lanes::new(
+            Arc::clone(&self.queues),
+            tombstones.clone(),
+            conversations.clone(),
+        );
         let habituation = Habituation::new(&self.docs)?;
         let digest = Digest::new(&self.docs)?;
         let scheduler = Scheduler::new(&self.docs)?;
@@ -193,6 +198,8 @@ impl PipelineBuilder {
                 habituation,
                 digest,
                 scheduler,
+                conversations,
+                threads: Threads::new(&self.docs)?,
                 host: self.host,
                 consumer: self.consumer,
             }),

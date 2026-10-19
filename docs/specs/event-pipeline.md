@@ -1,7 +1,6 @@
 # Inbound Event Pipeline
 
-**Status:** Accepted. Everything but dispatch (step 7) is implemented; the later stages land in the order of
-[the plan](../plans/event-pipeline.md). **Owner:** tinyeventqueues.
+**Status:** Implemented, in the order of [the plan](../plans/event-pipeline.md). **Owner:** tinyeventqueues.
 
 ## Problem
 

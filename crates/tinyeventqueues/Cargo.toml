@@ -36,6 +36,8 @@ tokio = { workspace = true }
 # The queue conformance suite (`conformance::run_queue`) checks the broker
 # test double behaves like a real queue backend.
 tinystoragedrivers-core = { workspace = true, features = ["testkit"] }
+# The public-API test implements the `Host` trait as a downstream host does.
+async-trait = { workspace = true }
 # The release verifier passes an explicit empty module configuration, and the
 # tests build JSON fixtures.
 serde_json = { workspace = true }

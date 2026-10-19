@@ -341,7 +341,30 @@ async fn a_full_lane_spills_to_the_digest_instead_of_dropping() {
 }
 
 #[derive(Debug)]
-struct Classifier(SalienceClass, std::sync::atomic::AtomicU32);
+struct Classifier(
+    SalienceClass,
+    std::sync::atomic::AtomicU32,
+    std::sync::Mutex<Vec<Lane>>,
+);
+
+impl Classifier {
+    fn new(class: SalienceClass) -> Arc<Self> {
+        Arc::new(Self(
+            class,
+            std::sync::atomic::AtomicU32::new(0),
+            std::sync::Mutex::new(Vec::new()),
+        ))
+    }
+
+    fn delivered(&self, lane: Lane) -> usize {
+        self.2
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| **l == lane)
+            .count()
+    }
+}
 
 #[async_trait::async_trait]
 impl crate::Host for Classifier {
@@ -358,15 +381,22 @@ impl crate::Host for Classifier {
         }
         Ok(tinyeventqueues_bus::ClassifySalienceResponse::new(self.0))
     }
+
+    async fn deliver(
+        &self,
+        request: tinyeventqueues_bus::DeliverRequest,
+    ) -> crate::Result<tinyeventqueues_bus::DeliverResponse> {
+        self.2.lock().unwrap().push(request.turn.lane);
+        Ok(tinyeventqueues_bus::DeliverResponse::new(
+            tinyeventqueues_bus::DeliverStatus::Accepted,
+        ))
+    }
 }
 
 #[tokio::test]
 async fn borderline_scores_are_classified_by_the_host_within_budget() {
     let fixture = Fixture::new();
-    let host = Arc::new(Classifier(
-        SalienceClass::Urgent,
-        std::sync::atomic::AtomicU32::new(0),
-    ));
+    let host = Classifier::new(SalienceClass::Urgent);
     let mut config = shipped_pipeline_config().unwrap();
     config.salience.borderline = Some(tinyeventqueues_bus::Borderline::new(20, 30, 2));
     let pipeline = fixture
@@ -389,27 +419,14 @@ async fn borderline_scores_are_classified_by_the_host_within_budget() {
     fixture.clock.advance(10_000);
     pipeline.drain().await.unwrap();
     assert_eq!(host.1.load(std::sync::atomic::Ordering::SeqCst), 2);
-    assert_eq!(
-        take_turns(&fixture, &pipeline, Lane::Interactive)
-            .await
-            .len(),
-        2
-    );
-    assert_eq!(
-        take_turns(&fixture, &pipeline, Lane::Background)
-            .await
-            .len(),
-        1
-    );
+    assert_eq!(host.delivered(Lane::Interactive), 2);
+    assert_eq!(host.delivered(Lane::Background), 1);
 }
 
 #[tokio::test]
 async fn a_failing_classifier_leaves_the_rule_score_standing() {
     let fixture = Fixture::new();
-    let host = Arc::new(Classifier(
-        SalienceClass::Noise,
-        std::sync::atomic::AtomicU32::new(0),
-    ));
+    let host = Classifier::new(SalienceClass::Noise);
     let mut config = shipped_pipeline_config().unwrap();
     config.salience.borderline = Some(tinyeventqueues_bus::Borderline::new(20, 30, 0));
     let pipeline = fixture
@@ -437,12 +454,7 @@ async fn a_failing_classifier_leaves_the_rule_score_standing() {
     fixture.clock.advance(10_000);
     pipeline.drain().await.unwrap();
     assert_eq!(host.1.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert_eq!(
-        take_turns(&fixture, &pipeline, Lane::Background)
-            .await
-            .len(),
-        2
-    );
+    assert_eq!(host.delivered(Lane::Background), 2);
 }
 
 #[tokio::test]

@@ -9,7 +9,9 @@ The module claims `ai.tinyhumans.tinyeventqueues.EventQueues`, serves it at
 `Configure`, `Stats`, `ListDead`, `Redrive` and `Drain`. It durably queues
 inbound events and filters them before they reach an agent; hosts serve
 `ai.tinyhumans.tinyeventqueues.Host` (`ClassifySalience`, `Deliver`) for the
-module's callbacks. The interface names, object paths, member names and
+module's callbacks. Each `Drain` call runs one pipeline pass (taking
+ingress, flushing buffers, firing due cadence ticks and dispatching due turns
+to the host's `Deliver`); hosts call it on their own schedule. The interface names, object paths, member names and
 payload types are published as the `tinyeventqueues-bus` crate, so a host
 names them from a library rather than by string literal.
 

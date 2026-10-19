@@ -69,7 +69,16 @@ in a later change.
 ## 5. Dispatch, retry, dead letters, property and flood tests
 
 - `Deliver` with ack policies, backoff through nack, parking after
-  `max_attempts`; the TinyBus adapter keeps exporting the full contract.
+  `max_attempts`; the TinyBus adapter keeps exporting the full contract and
+  calls the host's `ai.tinyhumans.tinyeventqueues.Host` back over the bus.
+- Each pass dispatches up to a lane's `concurrency` turns, lanes most urgent
+  first. Per-thread order across lanes: a thread registry sends a new turn to
+  the most urgent lane its thread has queued work on and folds queued turns
+  of slower lanes into it (they are acknowledged unseen later). Without queue
+  groups, per-conversation sequence numbers keep one turn in flight and
+  order; a waiting turn is requeued (not nacked, so waiting spends no
+  attempts), a number lost to a crash is skipped after `gap_timeout_ms`, and
+  a redelivered finished turn is acknowledged only if all its events ended.
 - The no-loss property test and a 10,000-event mixed flood test.
 
 ## Completion checklist
@@ -78,4 +87,4 @@ in a later change.
 - [x] 2. Gate, rate limits, coalesce
 - [x] 3. Salience, habituation, lanes, digest spill
 - [x] 4. Cadence scheduler, budgets, overflow folding
-- [ ] 5. Dispatch, retry, dead letters, property and flood tests
+- [x] 5. Dispatch, retry, dead letters, property and flood tests

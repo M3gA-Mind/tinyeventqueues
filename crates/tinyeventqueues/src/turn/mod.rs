@@ -12,12 +12,12 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use tinyeventqueues_bus::{EventRef, InboundEvent, Lane, Reason};
-use tinystoragedrivers_core::Key;
 use tinystoragedrivers_core::queue::{NewMessage, QueueStore};
+use tinystoragedrivers_core::{DocumentStore, Key, Repo};
 
 use crate::Result;
 use crate::config::QueueRef;
-use crate::store::Tombstones;
+use crate::store::{CONVERSATIONS, Tombstones};
 
 /// A turn waiting in a lane queue.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,6 +37,10 @@ pub(crate) struct PendingTurn {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) context: Vec<InboundEvent>,
     pub(crate) created_ms: u64,
+    /// The turn's place in its conversation, on a queue backend without
+    /// groups (which orders conversations itself).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) seq: Option<u64>,
 }
 
 impl PendingTurn {
@@ -76,6 +80,7 @@ impl PendingTurn {
             absorbed,
             context: Vec::new(),
             created_ms,
+            seq: None,
         })
     }
 }
@@ -91,14 +96,23 @@ impl PendingTurn {
 pub(crate) struct Lanes {
     queues: Arc<dyn QueueStore>,
     tombstones: Tombstones,
+    conversations: Conversations,
 }
 
 /// The tombstone namespace of turn ids.
 const TURN_TOMBSTONES: &str = "turn";
 
 impl Lanes {
-    pub(crate) fn new(queues: Arc<dyn QueueStore>, tombstones: Tombstones) -> Self {
-        Self { queues, tombstones }
+    pub(crate) fn new(
+        queues: Arc<dyn QueueStore>,
+        tombstones: Tombstones,
+        conversations: Conversations,
+    ) -> Self {
+        Self {
+            queues,
+            tombstones,
+            conversations,
+        }
     }
 
     /// Enqueue `turn` on `queue`. Returns `false` when the turn was already
@@ -119,7 +133,11 @@ impl Lanes {
         {
             return Ok(false);
         }
-        let mut message = NewMessage::new(serde_json::to_value(turn)?);
+        let mut turn = turn.clone();
+        if !features.groups && !turn.conversation_key.is_empty() && turn.seq.is_none() {
+            turn.seq = Some(self.conversations.assign(&turn.conversation_key).await?);
+        }
+        let mut message = NewMessage::new(serde_json::to_value(&turn)?);
         if features.dedupe {
             message = message.dedupe_key(&turn.turn_id);
         }
@@ -135,6 +153,146 @@ impl Lanes {
         Ok(stored.first().is_some_and(|stored| !stored.duplicate))
     }
 }
+
+/// A conversation's order on a queue backend without groups.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Conversation {
+    /// The last sequence number handed out.
+    last_seq: u64,
+    /// The sequence number of the next turn to deliver.
+    next_seq: u64,
+    /// Since when a later turn has been waiting for a missing one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    waiting_since_ms: Option<u64>,
+    /// The turn numbered `next_seq` has been seen (it is in flight or
+    /// backing off), so it is not missing and must not be skipped.
+    #[serde(default)]
+    next_seen: bool,
+}
+
+/// Whether a turn may be delivered now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Turnstile {
+    /// It is the conversation's next turn.
+    Go,
+    /// An earlier turn of the conversation has not finished.
+    Wait,
+    /// It already finished (a redelivery).
+    Done,
+}
+
+/// Per-conversation ordering for queue backends without groups: each turn
+/// gets the next sequence number of its conversation when it is enqueued, and
+/// only the conversation's next number is delivered, so a conversation has
+/// one turn in flight and its turns keep their order. A number lost to a
+/// crash between assigning it and enqueueing is skipped after a gap timeout.
+#[derive(Debug, Clone)]
+pub(crate) struct Conversations {
+    repo: Repo<Conversation>,
+}
+
+impl Conversations {
+    pub(crate) fn new(docs: &Arc<dyn DocumentStore>) -> Result<Self> {
+        Ok(Self {
+            repo: Repo::new(docs, CONVERSATIONS)?,
+        })
+    }
+
+    async fn assign(&self, conversation: &str) -> Result<u64> {
+        let id = Key::of(["conversation", conversation])?;
+        let written = self
+            .repo
+            .update(id.as_str(), |current| {
+                let mut state = current.unwrap_or(Conversation {
+                    next_seq: 1,
+                    ..Conversation::default()
+                });
+                state.last_seq += 1;
+                Ok(Some(state))
+            })
+            .await?;
+        Ok(written.map_or(1, |(state, _)| state.last_seq))
+    }
+
+    /// Whether turn `seq` of `conversation` may go now.
+    pub(crate) async fn check(
+        &self,
+        conversation: &str,
+        seq: u64,
+        gap_timeout_ms: u64,
+        now: u64,
+    ) -> Result<Turnstile> {
+        let id = Key::of(["conversation", conversation])?;
+        let mut verdict = Turnstile::Go;
+        self.repo
+            .update(id.as_str(), |current| {
+                let mut state = current.unwrap_or(Conversation {
+                    next_seq: seq,
+                    last_seq: seq,
+                    waiting_since_ms: None,
+                    next_seen: false,
+                });
+                if seq < state.next_seq {
+                    verdict = Turnstile::Done;
+                    return Ok(None);
+                }
+                if seq == state.next_seq {
+                    verdict = Turnstile::Go;
+                    if state.next_seen {
+                        return Ok(None);
+                    }
+                    state.next_seen = true;
+                    state.waiting_since_ms = None;
+                    return Ok(Some(state));
+                }
+                match state.waiting_since_ms {
+                    Some(since)
+                        if !state.next_seen && now.saturating_sub(since) >= gap_timeout_ms =>
+                    {
+                        verdict = Turnstile::Go;
+                        state.next_seq = seq;
+                        state.next_seen = true;
+                        state.waiting_since_ms = None;
+                    }
+                    Some(_) => {
+                        verdict = Turnstile::Wait;
+                        return Ok(None);
+                    }
+                    _ => {
+                        verdict = Turnstile::Wait;
+                        state.waiting_since_ms = Some(now);
+                    }
+                }
+                Ok(Some(state))
+            })
+            .await?;
+        Ok(verdict)
+    }
+
+    /// Turn `seq` of `conversation` finished: the next one may go.
+    pub(crate) async fn finish(&self, conversation: &str, seq: u64) -> Result<()> {
+        let id = Key::of(["conversation", conversation])?;
+        self.repo
+            .update(id.as_str(), |current| {
+                let Some(mut state) = current else {
+                    return Ok(None);
+                };
+                if state.next_seq > seq {
+                    return Ok(None);
+                }
+                state.next_seq = seq + 1;
+                state.waiting_since_ms = None;
+                state.next_seen = false;
+                Ok(Some(state))
+            })
+            .await?;
+        Ok(())
+    }
+}
+
+mod threads;
+
+pub(crate) use threads::Threads;
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]

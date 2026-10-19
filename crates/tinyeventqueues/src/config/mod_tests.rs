@@ -190,6 +190,21 @@ fn out_of_range_values_are_named() {
 }
 
 #[test]
+fn dispatch_values_are_named() {
+    assert_named(&[
+        ("dispatch.backoff_base_ms", |v| {
+            v["dispatch"]["backoff_base_ms"] = json!(0);
+        }),
+        ("dispatch.backoff_max_ms", |v| {
+            v["dispatch"]["backoff_max_ms"] = json!(10);
+        }),
+        ("dispatch.gap_timeout_ms", |v| {
+            v["dispatch"]["gap_timeout_ms"] = json!(0);
+        }),
+    ]);
+}
+
+#[test]
 fn more_out_of_range_values_are_named() {
     assert_named(&[
         ("salience.habituation.max_distance", |v| {

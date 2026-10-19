@@ -167,6 +167,7 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
     check_gate(config)?;
     check_salience(config)?;
     check_digest(config)?;
+    check_dispatch(config)?;
     for (index, prefix) in config.coalesce.control_prefixes.iter().enumerate() {
         if prefix.is_empty() {
             return Err(Error::config(
@@ -358,6 +359,29 @@ fn check_salience(config: &PipelineConfig) -> Result<()> {
         return Err(Error::config(
             "salience.habituation.decay_percent",
             "must be 0 to 100",
+        ));
+    }
+    Ok(())
+}
+
+fn check_dispatch(config: &PipelineConfig) -> Result<()> {
+    let dispatch = &config.dispatch;
+    if dispatch.backoff_base_ms == 0 {
+        return Err(Error::config(
+            "dispatch.backoff_base_ms",
+            "must be at least 1",
+        ));
+    }
+    if dispatch.backoff_max_ms < dispatch.backoff_base_ms {
+        return Err(Error::config(
+            "dispatch.backoff_max_ms",
+            "must be at least dispatch.backoff_base_ms",
+        ));
+    }
+    if dispatch.gap_timeout_ms == 0 {
+        return Err(Error::config(
+            "dispatch.gap_timeout_ms",
+            "must be at least 1",
         ));
     }
     Ok(())

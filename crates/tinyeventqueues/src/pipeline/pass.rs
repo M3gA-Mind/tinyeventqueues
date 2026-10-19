@@ -211,7 +211,24 @@ impl Pipeline {
             return Ok(());
         };
         let resolved = cadence::resolve(config, &first.source, lane);
-        let waiting = self.inner.scheduler.entry_of(&resolved, first).await?;
+        let waiting = self.inner.scheduler.entry_of(first).await?;
+        if let Some(entry) = &waiting
+            && score >= config.salience.thresholds.interactive
+        {
+            // Promoted: the thread's waiting entry goes out now, with
+            // this turn folded in, whatever cadence it waited for.
+            self.inner
+                .scheduler
+                .stage(&resolved, lane, events, absorbed, now, now)
+                .await?;
+            let entry = self
+                .inner
+                .scheduler
+                .entry_of(first)
+                .await?
+                .unwrap_or_else(|| entry.clone());
+            return self.release_entry(&entry, running, now).await;
+        }
         let due = match &resolved.cadence {
             Cadence::Instant => {
                 let over_budget = match resolved.budget {
@@ -237,19 +254,6 @@ impl Pipeline {
             _ => {
                 if score >= config.salience.thresholds.interactive {
                     // Promoted: interactive work does not wait for a tick.
-                    if let Some(entry) = waiting {
-                        self.inner
-                            .scheduler
-                            .stage(&resolved, lane, events, absorbed, now, now)
-                            .await?;
-                        let entry = self
-                            .inner
-                            .scheduler
-                            .entry_of(&resolved, first)
-                            .await?
-                            .unwrap_or(entry);
-                        return self.release_entry(&entry, running, now).await;
-                    }
                     None
                 } else {
                     match waiting {
@@ -308,7 +312,18 @@ impl Pipeline {
             return Ok(());
         };
         let (source, conversation) = (first.source.clone(), first.conversation_key.clone());
-        let mut turn = PendingTurn::new(lane, Reason::Turn, events, absorbed, now)?;
+        // Keep the thread's order across lanes: take the most urgent lane it
+        // has work queued on, folding in queued turns of less urgent lanes.
+        let (lane, superseded) = self.inner.threads.plan(first, lane).await?;
+        let mut all_events: Vec<InboundEvent> = Vec::new();
+        let mut all_absorbed: Vec<EventRef> = Vec::new();
+        for queued in &superseded {
+            all_events.extend(queued.events.iter().cloned());
+            all_absorbed.extend(queued.absorbed.iter().cloned());
+        }
+        all_events.extend(events);
+        all_absorbed.extend(absorbed);
+        let mut turn = PendingTurn::new(lane, Reason::Turn, all_events, all_absorbed, now)?;
         turn.context = self.inner.ambient.peek(&source, &conversation).await?;
         self.inner
             .lanes
@@ -319,6 +334,7 @@ impl Pipeline {
                 running.config.ingress.tombstone_ttl_ms,
             )
             .await?;
+        self.inner.threads.record(&turn, &superseded).await?;
         let taken: Vec<_> = turn.context.iter().map(InboundEvent::reference).collect();
         self.inner
             .ambient

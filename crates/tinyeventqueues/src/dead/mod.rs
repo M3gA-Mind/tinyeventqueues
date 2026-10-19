@@ -81,6 +81,33 @@ impl DeadLetters {
         }
     }
 
+    /// Park `parked` in `dead` and record its events as dead. The caller
+    /// acknowledges the origin message afterwards.
+    pub(crate) async fn park(
+        &self,
+        dead: &QueueRef,
+        parked: Parked,
+        reason: Reason,
+        now: u64,
+        ttl_ms: u64,
+    ) -> Result<()> {
+        let events = parked.events.clone();
+        let turn = parked.turn_id.clone();
+        self.queues
+            .enqueue(
+                &dead.name,
+                &[NewMessage::new(serde_json::to_value(parked)?)],
+            )
+            .await?;
+        for event in events {
+            let mut outcome = Outcome::new(event, Disposition::Dead, reason, now);
+            outcome.turn_id.clone_from(&turn);
+            self.ledger.record(outcome, ttl_ms).await?;
+        }
+        self.settle(dead).await?;
+        Ok(())
+    }
+
     /// Move every ready message of the dead-letter queue to its final state:
     /// dead, or gone if it was redriven.
     pub(crate) async fn settle(&self, dead: &QueueRef) -> Result<u64> {

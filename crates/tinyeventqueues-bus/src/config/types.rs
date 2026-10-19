@@ -34,6 +34,49 @@ pub struct PipelineConfig {
     /// The digest accumulator.
     #[serde(default)]
     pub digest: DigestConfig,
+    /// Delivery to the host.
+    #[serde(default)]
+    pub dispatch: DispatchConfig,
+}
+
+/// Delivery to the host: retries back off exponentially from
+/// `backoff_base_ms` to `backoff_max_ms`; a turn that uses up its lane
+/// queue's manifest `max_attempts` is dead-lettered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DispatchConfig {
+    /// The first retry delay, in milliseconds.
+    #[serde(default = "default_backoff_base_ms")]
+    pub backoff_base_ms: u64,
+    /// The longest retry delay, in milliseconds.
+    #[serde(default = "default_backoff_max_ms")]
+    pub backoff_max_ms: u64,
+    /// On a queue backend without groups, how long a conversation waits for
+    /// a missing turn (one whose enqueue was lost to a crash) before
+    /// skipping it, in milliseconds.
+    #[serde(default = "default_gap_timeout_ms")]
+    pub gap_timeout_ms: u64,
+}
+
+fn default_backoff_base_ms() -> u64 {
+    1_000
+}
+fn default_backoff_max_ms() -> u64 {
+    300_000
+}
+fn default_gap_timeout_ms() -> u64 {
+    120_000
+}
+
+impl Default for DispatchConfig {
+    fn default() -> Self {
+        Self {
+            backoff_base_ms: default_backoff_base_ms(),
+            backoff_max_ms: default_backoff_max_ms(),
+            gap_timeout_ms: default_gap_timeout_ms(),
+        }
+    }
 }
 
 /// Salience: how much an event deserves the agent's attention, from 0 to

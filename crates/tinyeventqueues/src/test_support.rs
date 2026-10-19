@@ -186,3 +186,64 @@ fn words(id: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+/// How a [`ScriptedHost`] answers a turn.
+type Decide = dyn Fn(&tinyeventqueues_bus::Turn) -> crate::Result<tinyeventqueues_bus::DeliverStatus>
+    + Send
+    + Sync;
+
+/// A host whose verdict on each turn is scripted, and which records every
+/// turn it is handed.
+pub(crate) struct ScriptedHost {
+    decide: Box<Decide>,
+    pub(crate) delivered: std::sync::Mutex<Vec<tinyeventqueues_bus::Turn>>,
+}
+
+impl std::fmt::Debug for ScriptedHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ScriptedHost").finish_non_exhaustive()
+    }
+}
+
+impl ScriptedHost {
+    pub(crate) fn new(
+        decide: impl Fn(&tinyeventqueues_bus::Turn) -> crate::Result<tinyeventqueues_bus::DeliverStatus>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            decide: Box::new(decide),
+            delivered: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+
+    /// A host that accepts everything.
+    pub(crate) fn accepting() -> Arc<Self> {
+        Self::new(|_| Ok(tinyeventqueues_bus::DeliverStatus::Accepted))
+    }
+
+    pub(crate) fn turns(&self) -> Vec<tinyeventqueues_bus::Turn> {
+        self.delivered.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl crate::Host for ScriptedHost {
+    async fn classify_salience(
+        &self,
+        _request: tinyeventqueues_bus::ClassifySalienceRequest,
+    ) -> crate::Result<tinyeventqueues_bus::ClassifySalienceResponse> {
+        Ok(tinyeventqueues_bus::ClassifySalienceResponse::new(
+            tinyeventqueues_bus::SalienceClass::Fyi,
+        ))
+    }
+
+    async fn deliver(
+        &self,
+        request: tinyeventqueues_bus::DeliverRequest,
+    ) -> crate::Result<tinyeventqueues_bus::DeliverResponse> {
+        self.delivered.lock().unwrap().push(request.turn.clone());
+        (self.decide)(&request.turn).map(tinyeventqueues_bus::DeliverResponse::new)
+    }
+}
