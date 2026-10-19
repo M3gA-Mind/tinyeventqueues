@@ -8,9 +8,9 @@ Each adds its configuration section to `pipeline.json`, its schema, and the
 strict loader together, with a test that the shipped files still load.
 
 Assumptions: `tinystoragedrivers-core` with the `QueueStore` port and
-`QueueManifest` (tinyhumansai/tinystoragedrivers#71) is pinned to the fork
-branch until that PR merges, then re-pinned to a tinyhumansai revision. Hosts
-wire the module to their storage in a later change.
+`QueueManifest` (tinyhumansai/tinystoragedrivers#71) is pinned to the
+tinyhumansai revision that merged it. Hosts wire the module to their storage
+in a later change.
 
 ## 1. De-template, contract, ingress
 
