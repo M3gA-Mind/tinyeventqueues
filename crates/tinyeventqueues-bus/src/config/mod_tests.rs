@@ -169,3 +169,22 @@ fn a_borderline_band_round_trips() {
         Some(super::Borderline::new(30, 50, 60))
     );
 }
+
+#[test]
+fn cadences_and_budgets_are_optional() {
+    let config: PipelineConfig = serde_json::from_value(minimal()).unwrap();
+    assert_eq!(config.lanes.get(Lane::Background).cadence, None);
+    assert_eq!(config.source_policy("x").budget, None);
+    let mut value = minimal();
+    value["lanes"]["background"]["cadence"] = json!("every(10m)");
+    value["lanes"]["background"]["budget"] = json!({"max_turns": 5});
+    let config: PipelineConfig = serde_json::from_value(value).unwrap();
+    let background = config.lanes.get(Lane::Background);
+    assert_eq!(background.cadence.as_deref(), Some("every(10m)"));
+    assert_eq!(background.budget, Some(super::Budget::new(5)));
+    let budget = background.budget.unwrap();
+    assert_eq!(
+        (budget.backlog_ticks, budget.degrade_debounce_ms),
+        (3, 5_000)
+    );
+}

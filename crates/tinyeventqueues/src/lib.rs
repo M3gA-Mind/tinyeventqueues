@@ -54,6 +54,7 @@
 //! # }).unwrap();
 //! ```
 
+pub mod cadence;
 pub mod clock;
 mod coalesce;
 pub mod config;

@@ -267,7 +267,15 @@ async fn salience_picks_the_lane() {
 async fn a_source_that_keeps_repeating_itself_fades_into_the_digest() {
     let fixture = Fixture::new();
     let sink = Arc::new(CollectingSink::new());
-    let pipeline = fixture.builder().sink(sink.clone()).build().await.unwrap();
+    let mut config = shipped_pipeline_config().unwrap();
+    config.lanes.background.cadence = None;
+    let pipeline = fixture
+        .builder()
+        .config(config)
+        .sink(sink.clone())
+        .build()
+        .await
+        .unwrap();
     for i in 0..4 {
         let mut ping = event("monitor:disk", &i.to_string(), &format!("alert-{i}"))
             .text("disk usage above 90 percent on host 7");

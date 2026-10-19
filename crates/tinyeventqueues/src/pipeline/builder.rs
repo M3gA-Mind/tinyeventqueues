@@ -8,6 +8,7 @@ use tinystoragedrivers_core::queue::{QueueManifest, QueueStore};
 use tinystoragedrivers_core::{Clock, DocumentStore};
 
 use super::{Inner, Pipeline, Running};
+use crate::cadence::Scheduler;
 use crate::clock::system_clock;
 use crate::coalesce::Coalescer;
 use crate::config::{
@@ -171,6 +172,7 @@ impl PipelineBuilder {
         let lanes = Lanes::new(Arc::clone(&self.queues), tombstones.clone());
         let habituation = Habituation::new(&self.docs)?;
         let digest = Digest::new(&self.docs)?;
+        let scheduler = Scheduler::new(&self.docs)?;
         Ok(Pipeline {
             inner: Arc::new(Inner {
                 queues: self.queues,
@@ -190,6 +192,7 @@ impl PipelineBuilder {
                 lanes,
                 habituation,
                 digest,
+                scheduler,
                 host: self.host,
                 consumer: self.consumer,
             }),

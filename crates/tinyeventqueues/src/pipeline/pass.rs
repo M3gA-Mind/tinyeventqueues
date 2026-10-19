@@ -1,13 +1,15 @@
 //! One pass of the pipeline's stages, in order.
 
 use tinyeventqueues_bus::{
-    ClassifySalienceRequest, Disposition, EventRef, InboundEvent, Lane, Outcome, Reason,
+    Budget, ClassifySalienceRequest, Disposition, EventRef, InboundEvent, Lane, Outcome, Reason,
     SalienceClass,
 };
+use tinystoragedrivers_core::Versioned;
 use tinystoragedrivers_core::queue::Retry;
 
 use super::{Pipeline, Running};
 use crate::Result;
+use crate::cadence::{self, Cadence, Resolved, Scheduler, Staged};
 use crate::coalesce::{Added, amends};
 use crate::gate::Verdict;
 use crate::ingress::IngressEnvelope;
@@ -189,19 +191,286 @@ impl Pipeline {
                 .spill(events, absorbed, Reason::LaneOverflow, running, now)
                 .await;
         }
-        let (source, conversation) = (top.source.clone(), top.conversation_key.clone());
-        let mut turn =
-            PendingTurn::new(lane, Reason::Turn, events.to_vec(), absorbed.to_vec(), now)?;
+        self.schedule(lane, events, absorbed, score, running, now)
+            .await
+    }
+
+    /// Hand a routed batch to its cadence: release it now, or stage it for
+    /// a tick (or, over an instant budget, for a short debounce).
+    async fn schedule(
+        &self,
+        lane: Lane,
+        events: &[InboundEvent],
+        absorbed: &[EventRef],
+        score: u32,
+        running: &Running,
+        now: u64,
+    ) -> Result<()> {
+        let config = &running.config;
+        let Some(first) = events.first() else {
+            return Ok(());
+        };
+        let resolved = cadence::resolve(config, &first.source, lane);
+        let waiting = self.inner.scheduler.entry_of(&resolved, first).await?;
+        let due = match &resolved.cadence {
+            Cadence::Instant => {
+                let over_budget = match resolved.budget {
+                    Some(budget) => {
+                        !self
+                            .inner
+                            .gate
+                            .turn_budget(&resolved.key, Scheduler::instant_limit(budget), now)
+                            .await?
+                    }
+                    None => false,
+                };
+                match (resolved.budget, over_budget, &waiting) {
+                    // A thread with a staged entry folds into it, so a newer
+                    // turn never overtakes an older one.
+                    (_, _, Some(entry)) => Some(entry.doc.due_ms),
+                    (Some(budget), true, None) => {
+                        Some(now.saturating_add(budget.degrade_debounce_ms))
+                    }
+                    _ => None,
+                }
+            }
+            _ => {
+                if score >= config.salience.thresholds.interactive {
+                    // Promoted: interactive work does not wait for a tick.
+                    if let Some(entry) = waiting {
+                        self.inner
+                            .scheduler
+                            .stage(&resolved, lane, events, absorbed, now, now)
+                            .await?;
+                        let entry = self
+                            .inner
+                            .scheduler
+                            .entry_of(&resolved, first)
+                            .await?
+                            .unwrap_or(entry);
+                        return self.release_entry(&entry, running, now).await;
+                    }
+                    None
+                } else {
+                    match waiting {
+                        Some(entry) => Some(entry.doc.due_ms),
+                        None => self.inner.scheduler.next_due(&resolved, now).await?,
+                    }
+                }
+            }
+        };
+        let Some(due) = due else {
+            return self
+                .enqueue_turn(lane, events.to_vec(), absorbed.to_vec(), running, now)
+                .await;
+        };
+        self.inner
+            .scheduler
+            .stage(&resolved, lane, events, absorbed, due, now)
+            .await?;
+        let reason = if resolved.cadence == Cadence::Instant {
+            Reason::OverBudget
+        } else {
+            Reason::ScheduledCadence
+        };
+        self.defer_notice(events, absorbed, reason, now);
+        Ok(())
+    }
+
+    fn defer_notice(
+        &self,
+        events: &[InboundEvent],
+        absorbed: &[EventRef],
+        reason: Reason,
+        now: u64,
+    ) {
+        for event in events
+            .iter()
+            .map(InboundEvent::reference)
+            .chain(absorbed.iter().cloned())
+        {
+            self.inner
+                .ledger
+                .notify(&Outcome::new(event, Disposition::Deferred, reason, now));
+        }
+    }
+
+    /// Enqueue a turn on its lane with the conversation's ambient context.
+    async fn enqueue_turn(
+        &self,
+        lane: Lane,
+        events: Vec<InboundEvent>,
+        absorbed: Vec<EventRef>,
+        running: &Running,
+        now: u64,
+    ) -> Result<()> {
+        let Some(first) = events.first() else {
+            return Ok(());
+        };
+        let (source, conversation) = (first.source.clone(), first.conversation_key.clone());
+        let mut turn = PendingTurn::new(lane, Reason::Turn, events, absorbed, now)?;
         turn.context = self.inner.ambient.peek(&source, &conversation).await?;
         self.inner
             .lanes
-            .enqueue(queue, &turn, now, config.ingress.tombstone_ttl_ms)
+            .enqueue(
+                running.queues.lane(lane),
+                &turn,
+                now,
+                running.config.ingress.tombstone_ttl_ms,
+            )
             .await?;
         let taken: Vec<_> = turn.context.iter().map(InboundEvent::reference).collect();
         self.inner
             .ambient
             .release(&source, &conversation, &taken)
             .await
+    }
+
+    /// Enqueue a staged entry as a turn and forget it.
+    async fn release_entry(
+        &self,
+        entry: &Versioned<Staged>,
+        running: &Running,
+        now: u64,
+    ) -> Result<()> {
+        let staged = &entry.doc;
+        self.enqueue_turn(
+            staged.lane,
+            staged.events.clone(),
+            staged.absorbed.clone(),
+            running,
+            now,
+        )
+        .await?;
+        self.inner.scheduler.remove(entry).await
+    }
+
+    /// Release what the cadences owe at `now`: due degraded entries of
+    /// instant cadences within their budget, and each due tick of a
+    /// scheduled cadence up to its budget. Waiting entries past the backlog
+    /// fold into the digest. Returns how many turns were released.
+    pub(super) async fn release_staged(&self, running: &Running, now: u64) -> Result<u64> {
+        let mut keys: Vec<String> = Vec::new();
+        for entry in self.inner.scheduler.due(now).await? {
+            if !keys.contains(&entry.doc.cadence_key) {
+                keys.push(entry.doc.cadence_key);
+            }
+        }
+        let mut released = 0;
+        for key in keys {
+            let resolved = cadence::by_key(&running.config, &key);
+            released += if resolved.cadence == Cadence::Instant {
+                self.release_degraded(&resolved, running, now).await?
+            } else {
+                self.fire_tick(&resolved, running, now).await?
+            };
+        }
+        Ok(released)
+    }
+
+    async fn release_degraded(
+        &self,
+        resolved: &Resolved,
+        running: &Running,
+        now: u64,
+    ) -> Result<u64> {
+        let mut released = 0;
+        let mut held = Vec::new();
+        for entry in self.inner.scheduler.due(now).await? {
+            if entry.doc.cadence_key != resolved.key {
+                continue;
+            }
+            let granted = match resolved.budget {
+                Some(budget) => {
+                    self.inner
+                        .gate
+                        .turn_budget(&resolved.key, Scheduler::instant_limit(budget), now)
+                        .await?
+                }
+                None => true,
+            };
+            if granted {
+                self.release_entry(&entry, running, now).await?;
+                released += 1;
+            } else {
+                held.push(entry);
+            }
+        }
+        if let Some(budget) = resolved.budget {
+            let next = now.saturating_add(budget.degrade_debounce_ms);
+            self.hold(held, budget, next, running, now).await?;
+        }
+        Ok(released)
+    }
+
+    async fn fire_tick(&self, resolved: &Resolved, running: &Running, now: u64) -> Result<u64> {
+        let scheduler = &self.inner.scheduler;
+        let Some(allowed) = scheduler.begin_tick(resolved, now).await? else {
+            // Due by its own clock but not by the schedule (the cadence
+            // changed): wait for the schedule's tick.
+            if let Some(next) = scheduler.next_due(resolved, now).await? {
+                for entry in scheduler.due(now).await? {
+                    if entry.doc.cadence_key == resolved.key {
+                        scheduler.defer(&entry, next).await?;
+                    }
+                }
+            }
+            return Ok(0);
+        };
+        let mut released = 0;
+        let mut held = Vec::new();
+        for entry in scheduler.waiting(&resolved.key).await? {
+            if released < u64::from(allowed) {
+                scheduler.count_release(&resolved.key).await?;
+                self.release_entry(&entry, running, now).await?;
+                released += 1;
+            } else {
+                held.push(entry);
+            }
+        }
+        let next = scheduler.end_tick(resolved, now).await?.unwrap_or(u64::MAX);
+        match resolved.budget {
+            Some(budget) => self.hold(held, budget, next, running, now).await?,
+            None => {
+                for entry in held {
+                    scheduler.defer(&entry, next).await?;
+                }
+            }
+        }
+        Ok(released)
+    }
+
+    /// Keep over-budget entries waiting until `next`, oldest first, folding
+    /// those beyond the backlog into the digest.
+    async fn hold(
+        &self,
+        held: Vec<Versioned<Staged>>,
+        budget: Budget,
+        next: u64,
+        running: &Running,
+        now: u64,
+    ) -> Result<()> {
+        let backlog = usize::try_from(budget.max_turns.saturating_mul(budget.backlog_ticks))
+            .unwrap_or(usize::MAX);
+        let excess = held.len().saturating_sub(backlog);
+        for (index, entry) in held.into_iter().enumerate() {
+            let staged = &entry.doc;
+            if index < excess {
+                self.spill(
+                    &staged.events,
+                    &staged.absorbed,
+                    Reason::OverBudget,
+                    running,
+                    now,
+                )
+                .await?;
+                self.inner.scheduler.remove(&entry).await?;
+            } else {
+                self.inner.scheduler.defer(&entry, next).await?;
+                self.defer_notice(&staged.events, &staged.absorbed, Reason::OverBudget, now);
+            }
+        }
+        Ok(())
     }
 
     /// Ask the host to classify a borderline score, within budget.
@@ -280,3 +549,7 @@ impl Pipeline {
 #[cfg(test)]
 #[path = "pass_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cadence_tests.rs"]
+mod cadence_tests;

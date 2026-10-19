@@ -138,6 +138,12 @@
           "minimum": 1,
           "default": 1000,
           "description": "Turns the lane may hold waiting; past it, new work spills to the digest (lane_overflow). Ignored for the digest lane."
+        },
+        "cadence": {
+          "$ref": "#/$defs/cadence"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
         }
       }
     },
@@ -168,6 +174,12 @@
           "maximum": 100,
           "default": 0,
           "description": "Salience points the source adds, or takes away when negative."
+        },
+        "cadence": {
+          "$ref": "#/$defs/cadence"
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
         }
       }
     },
@@ -501,6 +513,38 @@
           "minimum": 1,
           "default": 600000,
           "description": "Release a digest turn this long after its first event at the latest."
+        }
+      }
+    },
+    "cadence": {
+      "type": "string",
+      "pattern": "^(instant|every\\(\\s*[0-9]+(ms|s|m|h|d)\\s*\\)|cron\\(.*\\))$",
+      "description": "instant, every(<n><ms|s|m|h|d>) or cron(\"<min> <hour> <day> <month> <weekday>\") in UTC."
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_turns"
+      ],
+      "description": "An ingestion budget for a cadence.",
+      "properties": {
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Turns released per tick; for an instant cadence, per second."
+        },
+        "backlog_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Waiting turns beyond max_turns * backlog_ticks fold into the digest."
+        },
+        "degrade_debounce_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5000,
+          "description": "An instant cadence over budget holds new turns this long, folding each conversation's events into one."
         }
       }
     }

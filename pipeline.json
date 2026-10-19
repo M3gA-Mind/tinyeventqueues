@@ -23,7 +23,12 @@
     "background": {
       "queue": "teq.lane.background",
       "concurrency": 2,
-      "max_backlog": 1000
+      "max_backlog": 1000,
+      "cadence": "every(10m)",
+      "budget": {
+        "max_turns": 20,
+        "backlog_ticks": 6
+      }
     },
     "digest": {
       "queue": "teq.lane.digest",
@@ -45,12 +50,24 @@
     {
       "match": "composio:*",
       "ack": "after_ingest",
-      "weight": 0
+      "weight": 0,
+      "cadence": "instant",
+      "budget": {
+        "max_turns": 5,
+        "backlog_ticks": 60,
+        "degrade_debounce_ms": 10000
+      }
     },
     {
       "match": "webhook:*",
       "ack": "after_ingest",
-      "weight": -5
+      "weight": -5,
+      "cadence": "instant",
+      "budget": {
+        "max_turns": 10,
+        "backlog_ticks": 60,
+        "degrade_debounce_ms": 5000
+      }
     },
     {
       "match": "*",

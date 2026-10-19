@@ -17,9 +17,10 @@ mod types;
 
 use std::path::Path;
 
-use tinyeventqueues_bus::{Lane, PipelineConfig};
+use tinyeventqueues_bus::{Budget, Lane, PipelineConfig};
 use tinystoragedrivers_core::queue::QueueManifest;
 
+use crate::cadence::Cadence;
 use crate::salience::MAX_SCORE;
 use crate::{Error, Result};
 
@@ -156,6 +157,12 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
                 "must be at least 1",
             ));
         }
+        let at = format!("lanes.{}", lane.as_str());
+        check_cadence(
+            &at,
+            config.lanes.get(lane).cadence.as_deref(),
+            config.lanes.get(lane).budget,
+        )?;
     }
     check_gate(config)?;
     check_salience(config)?;
@@ -177,6 +184,11 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
                 "must be a source, a prefix ending in `*`, or `*`",
             ));
         }
+        check_cadence(
+            &format!("sources[{index}]"),
+            source.cadence.as_deref(),
+            source.budget,
+        )?;
         if !(-100..=100).contains(&source.weight) {
             return Err(Error::config(
                 format!("sources[{index}].weight"),
@@ -240,6 +252,28 @@ fn check_gate(config: &PipelineConfig) -> Result<()> {
             "gate.ambient.max_items",
             format!("must be 1 to {MAX_AMBIENT_ITEMS}"),
         ));
+    }
+    Ok(())
+}
+
+fn check_cadence(at: &str, cadence: Option<&str>, budget: Option<Budget>) -> Result<()> {
+    if let Some(text) = cadence {
+        Cadence::parse(text)
+            .map_err(|error| Error::config(format!("{at}.cadence"), error.to_string()))?;
+    }
+    if let Some(budget) = budget {
+        for (name, value) in [
+            ("max_turns", u64::from(budget.max_turns)),
+            ("backlog_ticks", u64::from(budget.backlog_ticks)),
+            ("degrade_debounce_ms", budget.degrade_debounce_ms),
+        ] {
+            if value == 0 {
+                return Err(Error::config(
+                    format!("{at}.budget.{name}"),
+                    "must be at least 1",
+                ));
+            }
+        }
     }
     Ok(())
 }

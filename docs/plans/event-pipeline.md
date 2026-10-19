@@ -52,7 +52,16 @@ in a later change.
 
 ## 4. Cadence scheduler, budgets, overflow folding
 
-- `cadence` per source/lane, budgets, persisted next-due ticks.
+- `cadence` and `budget` per source or lane (a source's wins), persisted
+  next-due ticks with the firing tick and its release count, so a crash
+  mid-tick resumes with what is left of the budget. Ticks are aligned to the
+  epoch (`every`) or UTC minutes (`cron`); ticks missed while down collapse
+  into one. Staging is one entry per cadence and thread; a thread's later
+  turn (any lane) folds into its waiting entry, which then goes out on the
+  more urgent lane, so nothing overtakes. Interactive-scored work bypasses a
+  scheduled cadence (taking its thread's waiting entry with it). An instant
+  cadence over its per-second budget stages for `degrade_debounce_ms` and
+  releases those entries within the budget.
 - Fake-clock tests first: an `every(10m)` source with 1,000 events stays within
   budget per tick and folds the rest; a restart between ticks neither skips
   nor double-fires; an instant source over budget degrades and recovers.
@@ -68,5 +77,5 @@ in a later change.
 - [x] 1. De-template, contract, ingress
 - [x] 2. Gate, rate limits, coalesce
 - [x] 3. Salience, habituation, lanes, digest spill
-- [ ] 4. Cadence scheduler, budgets, overflow folding
+- [x] 4. Cadence scheduler, budgets, overflow folding
 - [ ] 5. Dispatch, retry, dead letters, property and flood tests

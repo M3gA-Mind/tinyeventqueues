@@ -23,6 +23,7 @@ use tinystoragedrivers_core::queue::{QueueManifest, QueueStore};
 use tinystoragedrivers_core::{Clock, DocumentStore};
 
 use crate::Result;
+use crate::cadence::Scheduler;
 use crate::coalesce::Coalescer;
 use crate::config::{ResolvedQueues, check_values, resolve_queues};
 use crate::dead::DeadLetters;
@@ -64,6 +65,7 @@ struct Inner {
     lanes: Lanes,
     habituation: Habituation,
     digest: Digest,
+    scheduler: Scheduler,
     host: Option<Arc<dyn Host>>,
     consumer: String,
 }
@@ -209,6 +211,7 @@ impl Pipeline {
         let mut report = DrainReport::default();
         report.ingested = self.take_ingress(&running, now).await?;
         report.flushed = self.flush_due(&running, now).await?;
+        report.scheduled = self.release_staged(&running, now).await?;
         self.release_digest(&running, now).await?;
         self.inner.dead.settle(&running.queues.dead).await?;
         report.dead = self.inner.dead.sweep(&running.queues, now, ttl).await?;

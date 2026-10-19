@@ -122,10 +122,37 @@ fn wrong_types_and_missing_fields_are_named() {
     assert_eq!(field_of(parse_pipeline_config("{").unwrap_err()), "(root)");
 }
 
+type Break = fn(&mut Value);
+
+fn assert_named(cases: &[(&str, Break)]) {
+    for (field, break_it) in cases {
+        let mut value = shipped_value();
+        break_it(&mut value);
+        assert_eq!(field_of(parse(&value).unwrap_err()), *field);
+    }
+}
+
 #[test]
 fn out_of_range_values_are_named() {
-    type Break = fn(&mut Value);
-    let cases: [(&str, Break); 29] = [
+    assert_named(&[
+        ("lanes.background.cadence", |v| {
+            v["lanes"]["background"]["cadence"] = json!("hourly");
+        }),
+        ("sources[0].cadence", |v| {
+            v["sources"][0]["cadence"] = json!("every(0s)");
+        }),
+        ("lanes.background.budget.max_turns", |v| {
+            v["lanes"]["background"]["budget"]["max_turns"] = json!(0);
+        }),
+        ("sources[2].budget.backlog_ticks", |v| {
+            v["sources"][2]["budget"]["backlog_ticks"] = json!(0);
+        }),
+        ("sources[3].budget.degrade_debounce_ms", |v| {
+            v["sources"][3]["budget"]["degrade_debounce_ms"] = json!(0);
+        }),
+        ("lanes.interactive.cadence", |v| {
+            v["lanes"]["interactive"]["cadence"] = json!("cron(1 2 3)");
+        }),
         ("lanes.digest.max_backlog", |v| {
             v["lanes"]["digest"]["max_backlog"] = json!(0);
         }),
@@ -159,6 +186,12 @@ fn out_of_range_values_are_named() {
         ("salience.habituation.window_ms", |v| {
             v["salience"]["habituation"]["window_ms"] = json!(0);
         }),
+    ]);
+}
+
+#[test]
+fn more_out_of_range_values_are_named() {
+    assert_named(&[
         ("salience.habituation.max_distance", |v| {
             v["salience"]["habituation"]["max_distance"] = json!(65);
         }),
@@ -211,12 +244,7 @@ fn out_of_range_values_are_named() {
         ("sources[2].match", |v| {
             v["sources"][2]["match"] = json!("a*b");
         }),
-    ];
-    for (field, break_it) in cases {
-        let mut value = shipped_value();
-        break_it(&mut value);
-        assert_eq!(field_of(parse(&value).unwrap_err()), field);
-    }
+    ]);
 }
 
 #[test]
