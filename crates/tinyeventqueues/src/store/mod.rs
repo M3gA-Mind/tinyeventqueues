@@ -18,62 +18,18 @@ mod ledger;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tinystoragedrivers_core::{
-    CollectionSpec, DocumentStore, Filter, IndexSpec, Key, Precondition,
-};
+use tinystoragedrivers_core::{DocumentStore, Filter, Key, Precondition};
 
 use crate::Result;
 
 pub(crate) use ledger::Ledger;
 
-/// Terminal outcomes, one per event.
-pub(crate) const OUTCOMES: &str = "teq.outcomes";
-/// Ingress tombstones, for queue backends without dedupe.
-pub(crate) const TOMBSTONES: &str = "teq.tombstones";
-/// Dead letters already copied back to their origin by a redrive.
-pub(crate) const REDRIVEN: &str = "teq.redriven";
-/// Token buckets and bot-loop windows.
-pub(crate) const BUCKETS: &str = "teq.buckets";
-/// Ambient context per conversation.
-pub(crate) const AMBIENT: &str = "teq.ambient";
-/// The debounce buffer.
-pub(crate) const COALESCE: &str = "teq.coalesce";
-/// Habituation fingerprints per source.
-pub(crate) const HABITUATION: &str = "teq.habituation";
-/// The digest accumulator.
-pub(crate) const DIGEST: &str = "teq.digest";
-/// Turns staged for a cadence tick.
-pub(crate) const STAGED: &str = "teq.staged";
-/// Each cadence's schedule.
-pub(crate) const CADENCE: &str = "teq.cadence";
-/// Per-conversation turn order, on queue backends without groups.
-pub(crate) const CONVERSATIONS: &str = "teq.conversations";
-/// Queued, unsettled turns per thread.
-pub(crate) const THREADS: &str = "teq.threads";
-
-/// The collections the pipeline uses, with their indexes.
-pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
-    vec![
-        CollectionSpec::new(OUTCOMES)
-            .index(IndexSpec::new("by_disposition", ["disposition"]))
-            .index(IndexSpec::new("by_expiry", ["expires_ms"])),
-        CollectionSpec::new(TOMBSTONES).index(IndexSpec::new("by_expiry", ["expires_ms"])),
-        CollectionSpec::new(REDRIVEN),
-        CollectionSpec::new(BUCKETS),
-        CollectionSpec::new(AMBIENT),
-        CollectionSpec::new(HABITUATION),
-        CollectionSpec::new(DIGEST),
-        CollectionSpec::new(STAGED)
-            .index(IndexSpec::new("by_due", ["due_ms"]))
-            .index(IndexSpec::new("by_cadence", ["cadence_key"])),
-        CollectionSpec::new(CADENCE),
-        CollectionSpec::new(CONVERSATIONS),
-        CollectionSpec::new(THREADS),
-        CollectionSpec::new(COALESCE)
-            .index(IndexSpec::new("by_due", ["due_ms"]))
-            .index(IndexSpec::new("by_thread", ["thread_group"])),
-    ]
-}
+// The collection names and specs are the contract's, so the host's grant and
+// what the module ensures cannot drift.
+pub(crate) use tinyeventqueues_bus::storage::{
+    AMBIENT, BUCKETS, CADENCE, COALESCE, CONVERSATIONS, DIGEST, HABITUATION, OUTCOMES, REDRIVEN,
+    STAGED, THREADS, TOMBSTONES, collection_specs,
+};
 
 /// Declare every collection on `docs`. Idempotent.
 pub(crate) async fn ensure(docs: &dyn DocumentStore) -> Result<()> {

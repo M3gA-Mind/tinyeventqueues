@@ -4,83 +4,45 @@
 //! payload types come from [`tinyeventqueues_bus`], so a host spells them from
 //! the contract crate instead of repeating string literals.
 //!
-//! Host callbacks: the adapter installs a [`Host`] that calls the host's
-//! `ai.tinyhumans.tinyeventqueues.Host` interface at
-//! [`names::host::OBJECT_PATH`] for `ClassifySalience` and `Deliver`. A host
-//! that does not serve it yet makes deliveries fail, and turns back off and
-//! retry until it does. Passes run when the host calls `Drain`.
-//!
-//! Storage: until the module is wired to the host's storage through the
-//! `tinystoragedrivers` storage bus (a later change), the loaded module runs
-//! its pipeline over an in-process `MemoryStorage` with the shipped
-//! `queues.json` and `pipeline.json`. That is enough to exercise the contract
-//! end to end, but it is not durable across a host restart.
+//! * **Storage** ([`storage`]): the host's, over the storage bus — documents
+//!   for the pipeline's `teq.*` state and the queue port for the queues the
+//!   manifest declares, in the one scope the host bound this module to. A host
+//!   that serves no storage leaves the module on memory, logged as an error.
+//! * **Configuration** ([`settings`]): the host's private configuration blob
+//!   may carry a `queues.json` and a `pipeline.json` document and the timer
+//!   bounds; absent, the shipped files run. The manifest is applied through
+//!   the queue port at setup.
+//! * **Host callbacks** ([`host`]): `ClassifySalience` and `Deliver` on the
+//!   host's optional `ai.tinyhumans.tinyeventqueues.Host` interface.
+//! * **Passes** ([`ticker`]): the module runs passes on its own timer, waking
+//!   at the next debounce flush or cadence tick and right after an `Ingest`.
+//!   `Drain` runs one on demand.
 
+mod host;
+mod settings;
+mod storage;
+mod ticker;
+
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use tinybus::{Connection, Result as TinyBusResult};
 use tinyeventqueues_bus::{
-    ClassifySalienceRequest, ClassifySalienceResponse, ConfigureRequest, ConfigureResponse,
-    DeliverRequest, DeliverResponse, DrainRequest, DrainResponse, IngestRequest, IngestResponse,
-    ListDeadRequest, ListDeadResponse, RedriveRequest, RedriveResponse, StatsRequest,
-    StatsResponse, names,
+    ConfigureRequest, ConfigureResponse, DrainRequest, DrainResponse, IngestRequest,
+    IngestResponse, ListDeadRequest, ListDeadResponse, RedriveRequest, RedriveResponse,
+    StatsRequest, StatsResponse, names,
 };
-use tinystoragedrivers_core::queue::DocumentQueue;
-use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 
+use self::host::BusHost;
+use self::settings::Settings;
+use self::storage::Backing;
+use self::ticker::{Slot, Wake};
 use crate::{Host, Pipeline};
-
-/// The host's callback interface, reached over the bus.
-#[derive(Clone)]
-struct BusHost {
-    connection: Connection,
-}
-
-impl std::fmt::Debug for BusHost {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BusHost").finish_non_exhaustive()
-    }
-}
-
-impl BusHost {
-    async fn call<R: serde::de::DeserializeOwned>(
-        &self,
-        method: &'static str,
-        request: impl serde::Serialize + Send,
-    ) -> crate::Result<R> {
-        let failed = |error: tinybus::Error| crate::Error::Host {
-            method,
-            message: error.to_string(),
-        };
-        let proxy = self
-            .connection
-            .proxy(
-                names::host::INTERFACE,
-                names::host::OBJECT_PATH,
-                names::host::INTERFACE,
-            )
-            .map_err(failed)?;
-        proxy.call(method, (request,)).await.map_err(failed)
-    }
-}
-
-#[async_trait::async_trait]
-impl Host for BusHost {
-    async fn classify_salience(
-        &self,
-        request: ClassifySalienceRequest,
-    ) -> crate::Result<ClassifySalienceResponse> {
-        self.call(names::host::methods::CLASSIFY_SALIENCE, request)
-            .await
-    }
-
-    async fn deliver(&self, request: DeliverRequest) -> crate::Result<DeliverResponse> {
-        self.call(names::host::methods::DELIVER, request).await
-    }
-}
 
 struct EventQueuesService {
     pipeline: Pipeline,
+    wake: Wake,
 }
 
 fn failed(error: &crate::Error) -> tinybus::Error {
@@ -90,10 +52,13 @@ fn failed(error: &crate::Error) -> tinybus::Error {
 #[tinybus::interface(name = "ai.tinyhumans.tinyeventqueues.EventQueues")]
 impl EventQueuesService {
     async fn ingest(&self, request: IngestRequest) -> TinyBusResult<IngestResponse> {
-        self.pipeline
+        let ingested = self
+            .pipeline
             .ingest(request.events)
             .await
-            .map_err(|error| failed(&error))
+            .map_err(|error| failed(&error))?;
+        self.wake.now();
+        Ok(ingested)
     }
 
     async fn configure(&self, request: ConfigureRequest) -> TinyBusResult<ConfigureResponse> {
@@ -117,11 +82,15 @@ impl EventQueuesService {
     }
 
     async fn redrive(&self, request: RedriveRequest) -> TinyBusResult<RedriveResponse> {
-        self.pipeline
+        let redriven = self
+            .pipeline
             .redrive(&request.id)
             .await
-            .map(RedriveResponse::new)
-            .map_err(|error| failed(&error))
+            .map_err(|error| failed(&error))?;
+        if redriven {
+            self.wake.now();
+        }
+        Ok(RedriveResponse::new(redriven))
     }
 
     async fn drain(&self, _request: DrainRequest) -> TinyBusResult<DrainResponse> {
@@ -133,44 +102,75 @@ impl EventQueuesService {
     }
 }
 
-/// A pipeline over a fresh in-process memory store with the shipped files,
-/// calling `host` back.
-async fn memory_pipeline(host: Option<Arc<dyn Host>>) -> crate::Result<Pipeline> {
-    let storage = MemoryStorage::new().for_scope(&Scope::local())?;
-    let queues = Arc::new(DocumentQueue::new(storage.documents()));
-    let builder = Pipeline::builder(queues, Arc::clone(storage.documents()));
+/// The pipeline `settings` describe over `backing`, calling `host` back.
+async fn pipeline(
+    backing: Backing,
+    settings: &Settings,
+    host: Option<Arc<dyn Host>>,
+) -> crate::Result<Pipeline> {
+    let builder = Pipeline::builder(backing.queues, backing.docs)
+        .manifest(settings.manifest()?)
+        .config(settings.pipeline()?);
     match host {
         Some(host) => builder.host(host).build().await,
         None => builder.build().await,
     }
 }
 
-async fn setup(connection: Connection) -> TinyBusResult<()> {
-    let host = Arc::new(BusHost {
-        connection: connection.clone(),
-    });
-    let pipeline = memory_pipeline(Some(host))
+/// One `setup` call of a module instance.
+type SetupFuture = Pin<Box<dyn Future<Output = TinyBusResult<()>> + Send>>;
+
+/// Runs once per module instance: every setup of the instance (the first and
+/// each reinitialization) shares its timer slot.
+fn setup_factory() -> impl Fn(Connection, serde_json::Value) -> SetupFuture + Clone + Send + Sync {
+    let slot = Slot::default();
+    move |connection, config| Box::pin(setup(connection, config, slot.clone()))
+}
+
+async fn setup(connection: Connection, config: serde_json::Value, slot: Slot) -> TinyBusResult<()> {
+    let settings = Settings::parse(config).map_err(|error| failed(&error))?;
+    let backing = storage::open(connection.clone())
         .await
         .map_err(|error| failed(&error))?;
+    let durable = backing.durable;
+    let host: Arc<dyn Host> = Arc::new(BusHost {
+        connection: connection.clone(),
+    });
+    let pipeline = pipeline(backing, &settings, Some(host))
+        .await
+        .map_err(|error| failed(&error))?;
+    let wake = ticker::start(&slot, pipeline.clone(), settings.timer);
     connection
         .serve_at(
             names::OBJECT_PATH.try_into()?,
-            EventQueuesService { pipeline },
+            EventQueuesService { pipeline, wake },
         )
         .await?;
     connection.request_name(names::INTERFACE).await?;
+    log::info!("[tinyeventqueues] module ready durable={durable}");
     Ok(())
 }
 
-tinybus_module::module_export! {
-    setup = setup,
-    worker_threads = 1,
-    provides = ["ai.tinyhumans.tinyeventqueues.EventQueues"],
-    methods = ["Ingest", "Configure", "Stats", "ListDead", "Redrive", "Drain"],
-    signals = [],
-    requires = [],
-    optional = [],
-    lazy = false,
+// Process-global state audit (static-link / co-linking): this module keeps no
+// process-wide statics. The pass timer lives in a slot the setup factory
+// captures per instance, so another module linked into the same executable
+// (or a second instance) can neither observe nor stop it.
+#[allow(
+    missing_docs,
+    reason = "the export macro emits the ABI descriptor, manifest and init entry points without doc comments; nothing else may live in this module"
+)]
+pub(crate) mod exports {
+    tinybus_module::module_export_optional_static! {
+        setup_factory = super::setup_factory,
+        config = serde_json::Value,
+        worker_threads = 2,
+        provides = ["ai.tinyhumans.tinyeventqueues.EventQueues"],
+        methods = ["Ingest", "Configure", "Stats", "ListDead", "Redrive", "Drain"],
+        signals = [],
+        requires = [],
+        optional = ["ai.tinyhumans.tinyeventqueues.Host"],
+        lazy = false,
+    }
 }
 
 #[cfg(test)]

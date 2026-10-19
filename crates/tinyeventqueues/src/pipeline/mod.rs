@@ -14,6 +14,7 @@
 mod builder;
 mod dispatch;
 mod pass;
+mod wake;
 
 use std::sync::{Arc, RwLock};
 
@@ -71,6 +72,10 @@ struct Inner {
     threads: Threads,
     host: Option<Arc<dyn Host>>,
     consumer: String,
+    /// Held for the whole of a pass. Passes come from the module's timer and
+    /// from `Drain`; two at once would each dispatch up to a lane's
+    /// concurrency, so a lane of one could deliver two turns together.
+    pass: tokio::sync::Mutex<()>,
 }
 
 impl std::fmt::Debug for Inner {
@@ -89,7 +94,7 @@ impl Pipeline {
         PipelineBuilder::new(queues, docs)
     }
 
-    fn now(&self) -> u64 {
+    pub(crate) fn now(&self) -> u64 {
         (self.inner.clock)()
     }
 
@@ -204,10 +209,15 @@ impl Pipeline {
     /// its queues dead-lettered, and prune expired tombstones and outcome
     /// records.
     ///
+    /// Passes are serialized: a call made while another pass runs (the
+    /// module's timer and an on-demand `Drain`) waits for it, so a lane's
+    /// concurrency bounds deliveries across every caller.
+    ///
     /// # Errors
     ///
     /// A storage error; the pass can be run again.
     pub async fn drain(&self) -> Result<DrainReport> {
+        let _pass = self.inner.pass.lock().await;
         let running = self.running();
         let now = self.now();
         let ttl = running.config.ingress.tombstone_ttl_ms;

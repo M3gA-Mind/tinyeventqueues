@@ -26,11 +26,12 @@ use crate::{Error, Result};
 
 pub use types::{QueueRef, ResolvedQueues};
 
-/// The `queues.json` shipped at the repository root.
-pub const SHIPPED_QUEUES_JSON: &str = include_str!("../../../../queues.json");
+/// The `queues.json` shipped at the repository root (the contract's copy, so a
+/// host and this crate read one file).
+pub use tinyeventqueues_bus::storage::SHIPPED_QUEUES_JSON;
 
 /// The `pipeline.json` shipped at the repository root.
-pub const SHIPPED_PIPELINE_JSON: &str = include_str!("../../../../pipeline.json");
+pub use tinyeventqueues_bus::storage::SHIPPED_PIPELINE_JSON;
 
 /// The pipeline configuration format version this crate reads.
 pub const PIPELINE_CONFIG_VERSION: u32 = 1;

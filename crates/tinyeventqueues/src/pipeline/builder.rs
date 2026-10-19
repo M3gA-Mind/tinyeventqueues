@@ -202,6 +202,7 @@ impl PipelineBuilder {
                 threads: Threads::new(&self.docs)?,
                 host: self.host,
                 consumer: self.consumer,
+                pass: tokio::sync::Mutex::new(()),
             }),
         })
     }
