@@ -1,62 +1,86 @@
-//! A production-ready starting point for an installable `TinyBus` module.
+//! External event management and queuing: durably queue noisy inbound events
+//! and filter them the way a person filters noise, before they reach an agent.
 //!
-//! This crate is a template. It ships the layout, lint configuration, error
-//! handling, testing, and documentation conventions described in `AGENTS.md`.
-//! The compiled `cdylib` exports `TinyBus` module ABI v1 and serves the example
-//! [`greet`] behavior over the bus.
+//! Events arrive from chat channels (web chat, Telegram, Discord, Slack),
+//! connector triggers (X replies through Composio), webhooks and
+//! notifications. The [`Pipeline`] moves each one through
 //!
-//! # Layout
+//! ```text
+//! ingress → normalize → gate → coalesce → salience → attention lanes
+//!         → cadence / ingestion budget → dispatch (host callback)
+//! ```
 //!
-//! This is the implementation half of a two-crate workspace:
+//! and every ingested event ends in exactly one terminal [`Disposition`]:
+//! delivered, context, digest, dead, or dropped with a [`Reason`]. The full
+//! contract is `docs/specs/event-pipeline.md`; this release implements the
+//! ingress stage, tombstones, dead letters and configuration.
 //!
-//! - [`template_bus`] — the wire contract. Member names, payload types, and the
-//!   contract version, with no transport and no behavior. A host that only
-//!   makes calls depends on that crate alone.
-//! - `template` — this crate. The behavior, the crate-wide error type, and the
-//!   `TinyBus` adapter that serves them, built as both an `rlib` and the
-//!   `cdylib` the loader consumes.
+//! # Storage
 //!
-//! Within this crate:
+//! The pipeline runs over the storage ports of `tinystoragedrivers`: an
+//! `Arc<dyn QueueStore>` for work and an `Arc<dyn DocumentStore>` for state,
+//! so it runs on memory, `SQLite`, file, `MongoDB` or a broker. Time comes from
+//! an injectable [`Clock`], so tests drive it with a [`ManualClock`].
 //!
-//! - `src/error/` holds the crate-wide [`Error`] enum and the [`Result`] alias
-//!   returned by every fallible public function.
-//! - Each feature area lives in its own module directory with a `mod.rs`
-//!   module root, an optional `types.rs`, and a `test.rs` holding its unit
-//!   tests.
-//! - Every public item is re-exported from here — including all of
-//!   [`template_bus`] — so downstream users have a single predictable surface
-//!   and `template::GreetRequest` is the *same type* as
-//!   `template_bus::GreetRequest`, not a structural twin.
-//! - `tinybus_module` adapts the public behavior to `TinyBus` and exports the
-//!   module descriptor, embedded manifest, and initialization entrypoint.
+//! # Configuration
+//!
+//! Two editable JSON files, both strict: `queues.json` declares every queue
+//! (a `tinystoragedrivers` `QueueManifest`) and `pipeline.json` holds the
+//! pipeline's tunables ([`PipelineConfig`]), referring to queues by name. See
+//! [`config`].
 //!
 //! # Example
 //!
 //! ```
-//! use template::{greet, Error, GreetRequest};
+//! # tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+//! use std::sync::Arc;
+//! use tinyeventqueues::{Disposition, EventKind, InboundEvent, Pipeline, Sender};
+//! use tinystoragedrivers_core::queue::DocumentQueue;
+//! use tinystoragedrivers_core::{MemoryStorage, Scope, StorageBackend};
 //!
-//! assert_eq!(greet("Ferris")?, "Hello, Ferris!");
-//! assert_eq!(greet("   ").unwrap_err(), Error::EmptyName);
-//! assert_eq!(GreetRequest::new("Ferris").name, "Ferris");
-//! # Ok::<(), template::Error>(())
+//! let storage = MemoryStorage::new().for_scope(&Scope::local())?;
+//! let queues = Arc::new(DocumentQueue::new(storage.documents()));
+//! let pipeline = Pipeline::builder(queues, Arc::clone(storage.documents())).build().await?;
+//!
+//! let event = InboundEvent::new(
+//!     "channel:telegram", "1001", "chat-42", Sender::new("user-7"), EventKind::Message, 0,
+//! );
+//! let first = pipeline.ingest(vec![event.clone()]).await?;
+//! assert_eq!(first.results[0].disposition, Disposition::Accepted);
+//! let again = pipeline.ingest(vec![event]).await?;
+//! assert_eq!(again.results[0].disposition, Disposition::Duplicate);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # }).unwrap();
 //! ```
-//!
-//! Replace the `greeting` module with the first real feature area, keep the
-//! conventions, and update this documentation to describe the new crate.
 
+pub mod clock;
+pub mod config;
+mod dead;
 mod error;
-mod greeting;
+pub mod ingress;
+pub mod observe;
+mod pipeline;
+mod store;
 mod tinybus_module;
 
-pub use error::{Error, Result};
-pub use greeting::greet;
+#[cfg(test)]
+mod test_support;
 
-// The wire contract, re-exported by module rather than by item so every path
-// through this crate resolves to the same definitions the contract crate
-// publishes. A host may depend on `template-bus` directly and get exactly these
-// types; nothing here redefines them.
-pub use template_bus;
-pub use template_bus::{
-    CONTRACT_VERSION, GreetRequest, GreetResponse, INTERFACE, METHODS, OBJECT_PATH, is_compatible,
-    names, version,
+pub use clock::{Clock, ManualClock, system_clock};
+pub use error::{Error, Result};
+pub use observe::{CollectingSink, NoopSink, OutcomeSink};
+pub use pipeline::{Pipeline, PipelineBuilder};
+
+// The wire contract, re-exported by module and by item so every path through
+// this crate resolves to the same definitions the contract crate publishes.
+pub use tinyeventqueues_bus;
+pub use tinyeventqueues_bus::{
+    AckPolicy, CONTRACT_VERSION, ClassifySalienceRequest, ClassifySalienceResponse,
+    ConfigureRequest, ConfigureResponse, DeadItem, DeadLetterConfig, DeliverRequest,
+    DeliverResponse, DeliverStatus, Disposition, DrainReport, DrainRequest, DrainResponse,
+    EventKind, EventRef, INTERFACE, InboundEvent, IngestRequest, IngestResponse, IngestResult,
+    IngressConfig, Lane, LaneConfig, LanesConfig, ListDeadRequest, ListDeadResponse, METHODS,
+    MediaRef, OBJECT_PATH, Outcome, OutcomeCounts, PayloadRef, PipelineConfig, QueueDepth, Reason,
+    RedriveRequest, RedriveResponse, SalienceClass, Sender, SourcePolicy, StatsRequest,
+    StatsResponse, Turn, is_compatible, names, version,
 };

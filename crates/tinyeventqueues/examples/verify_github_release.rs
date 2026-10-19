@@ -4,19 +4,19 @@
 //!
 //! ```text
 //! cargo run --example verify_github_release -- \
-//!   https://github.com/tinyhumansai/template/releases/tag/v0.1.4 \
-//!   template-0.1.4-ubuntu-24.04-x86_64.tar.gz \
+//!   https://github.com/tinyhumansai/tinyeventqueues/releases/tag/v0.1.0 \
+//!   tinyeventqueues-0.1.0-ubuntu-24.04-x86_64.tar.gz \
 //!   <sha256>
 //! ```
 
 use std::io;
 use std::time::Duration;
 
-use template::{GreetRequest, GreetResponse, names};
 use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryBus;
+use tinyeventqueues::{StatsRequest, StatsResponse, names};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,15 +54,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await??;
 
     let proxy = client.proxy(names::INTERFACE, names::OBJECT_PATH, names::INTERFACE)?;
-    let reply: GreetResponse = proxy
-        .call(names::methods::GREET, (GreetRequest::new("TinyBus"),))
+    let stats: StatsResponse = proxy
+        .call(names::methods::STATS, (StatsRequest::new(),))
         .await?;
-    if reply.greeting != "Hello, TinyBus!" {
-        return Err(io::Error::other(format!(
-            "module returned an unexpected greeting: {}",
-            reply.greeting
-        ))
-        .into());
+    if stats.queues.is_empty() {
+        return Err(io::Error::other("module reported no queues").into());
     }
 
     println!(

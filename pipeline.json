@@ -1,0 +1,25 @@
+{
+  "$schema": "./schemas/pipeline.schema.json",
+  "version": 1,
+  "ingress": {
+    "queue": "teq.ingress",
+    "tombstone_ttl_ms": 2592000000,
+    "batch_size": 64
+  },
+  "dead_letter": {
+    "queue": "teq.dead"
+  },
+  "lanes": {
+    "interactive": { "queue": "teq.lane.interactive", "concurrency": 8 },
+    "actionable": { "queue": "teq.lane.actionable", "concurrency": 4 },
+    "background": { "queue": "teq.lane.background", "concurrency": 2 },
+    "digest": { "queue": "teq.lane.digest", "concurrency": 1 }
+  },
+  "sources": [
+    { "match": "web:*", "ack": "after_ingest" },
+    { "match": "channel:*", "ack": "after_ingest" },
+    { "match": "composio:*", "ack": "after_ingest" },
+    { "match": "webhook:*", "ack": "after_ingest" },
+    { "match": "*", "ack": "after_ingest" }
+  ]
+}
