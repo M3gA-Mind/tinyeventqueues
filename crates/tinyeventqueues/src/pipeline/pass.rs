@@ -99,7 +99,7 @@ impl Pipeline {
                     PendingTurn::new(Lane::Digest, reason, vec![event.clone()], vec![], now)?;
                 self.inner
                     .lanes
-                    .enqueue(running.queues.lane(Lane::Digest), &turn)
+                    .enqueue(running.queues.lane(Lane::Digest), &turn, now, ttl)
                     .await?;
                 self.inner.ledger.notify(&Outcome::new(
                     event.reference(),
@@ -159,7 +159,12 @@ impl Pipeline {
                 turn.context = self.inner.ambient.peek(&source, &conversation).await?;
                 self.inner
                     .lanes
-                    .enqueue(running.queues.lane(lane), &turn)
+                    .enqueue(
+                        running.queues.lane(lane),
+                        &turn,
+                        now,
+                        running.config.ingress.tombstone_ttl_ms,
+                    )
                     .await?;
                 let taken: Vec<_> = turn.context.iter().map(InboundEvent::reference).collect();
                 self.inner

@@ -48,7 +48,10 @@ async fn enqueueing_a_turn_twice_stores_it_once_in_its_conversation_group() {
     let fixture = Fixture::new();
     let pipeline = fixture.pipeline().await;
     let queue = pipeline.queues().lane(Lane::Actionable).clone();
-    let lanes = Lanes::new(Arc::clone(&fixture.queues));
+    let lanes = Lanes::new(
+        Arc::clone(&fixture.queues),
+        crate::store::Tombstones::new(Arc::clone(&fixture.docs)),
+    );
     let turn = PendingTurn::new(
         Lane::Actionable,
         Reason::Turn,
@@ -57,8 +60,8 @@ async fn enqueueing_a_turn_twice_stores_it_once_in_its_conversation_group() {
         0,
     )
     .unwrap();
-    assert!(lanes.enqueue(&queue, &turn).await.unwrap());
-    assert!(!lanes.enqueue(&queue, &turn).await.unwrap());
+    assert!(lanes.enqueue(&queue, &turn, 0, 1_000).await.unwrap());
+    assert!(!lanes.enqueue(&queue, &turn, 0, 1_000).await.unwrap());
     let got = fixture
         .queues
         .receive(&queue.name, 10, 1_000, "t")
@@ -75,13 +78,44 @@ async fn an_empty_turn_has_no_group() {
     let fixture = Fixture::new();
     let pipeline = fixture.pipeline().await;
     let queue = pipeline.queues().lane(Lane::Digest).clone();
-    let lanes = Lanes::new(Arc::clone(&fixture.queues));
+    let lanes = Lanes::new(
+        Arc::clone(&fixture.queues),
+        crate::store::Tombstones::new(Arc::clone(&fixture.docs)),
+    );
     let turn = PendingTurn::new(Lane::Digest, Reason::LaneOverflow, vec![], vec![], 0).unwrap();
-    assert!(lanes.enqueue(&queue, &turn).await.unwrap());
+    assert!(lanes.enqueue(&queue, &turn, 0, 1_000).await.unwrap());
     let got = fixture
         .queues
         .receive(&queue.name, 10, 1_000, "t")
         .await
         .unwrap();
+    assert_eq!(got[0].group, None);
+}
+
+#[tokio::test]
+async fn without_dedupe_or_groups_a_turn_is_stored_once_and_ungrouped() {
+    let fixture = Fixture::with_native(false);
+    let pipeline = fixture.pipeline().await;
+    let queue = pipeline.queues().lane(Lane::Actionable).clone();
+    let lanes = Lanes::new(
+        Arc::clone(&fixture.queues),
+        crate::store::Tombstones::new(Arc::clone(&fixture.docs)),
+    );
+    let turn = PendingTurn::new(
+        Lane::Actionable,
+        Reason::Turn,
+        vec![event("s", "1", "c")],
+        vec![],
+        0,
+    )
+    .unwrap();
+    assert!(lanes.enqueue(&queue, &turn, 0, 1_000).await.unwrap());
+    assert!(!lanes.enqueue(&queue, &turn, 500, 1_000).await.unwrap());
+    let got = fixture
+        .queues
+        .receive(&queue.name, 10, 1_000, "t")
+        .await
+        .unwrap();
+    assert_eq!(got.len(), 1);
     assert_eq!(got[0].group, None);
 }
