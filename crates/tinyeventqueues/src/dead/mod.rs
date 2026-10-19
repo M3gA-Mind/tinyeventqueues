@@ -50,11 +50,11 @@ pub(crate) fn payload_events(payload: &Value) -> Vec<EventRef> {
     if let Some(event) = payload.get("event") {
         return refer(event).into_iter().collect();
     }
-    payload
-        .get("events")
-        .and_then(Value::as_array)
-        .map(|events| events.iter().filter_map(refer).collect())
-        .unwrap_or_default()
+    ["events", "absorbed"]
+        .iter()
+        .filter_map(|field| payload.get(field).and_then(Value::as_array))
+        .flat_map(|events| events.iter().filter_map(refer))
+        .collect()
 }
 
 /// The dead-letter handling of one pipeline.

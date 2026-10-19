@@ -136,3 +136,28 @@ impl QueueStore for Broker {
         self.0.purge(queue).await
     }
 }
+
+/// Take every turn waiting on `lane`, in delivery order, acknowledging each
+/// so the next of its conversation becomes deliverable.
+pub(crate) async fn take_turns(
+    fixture: &Fixture,
+    pipeline: &Pipeline,
+    lane: tinyeventqueues_bus::Lane,
+) -> Vec<crate::turn::PendingTurn> {
+    let queue = pipeline.queues().lane(lane).name.clone();
+    let mut turns = Vec::new();
+    loop {
+        let batch = fixture
+            .queues
+            .receive(&queue, 100, 60_000, "inspect")
+            .await
+            .unwrap();
+        if batch.is_empty() {
+            return turns;
+        }
+        for delivery in batch {
+            turns.push(serde_json::from_value(delivery.payload).unwrap());
+            fixture.queues.ack(&queue, &delivery.receipt).await.unwrap();
+        }
+    }
+}

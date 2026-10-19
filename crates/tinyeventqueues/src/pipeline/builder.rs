@@ -9,14 +9,17 @@ use tinystoragedrivers_core::{Clock, DocumentStore};
 
 use super::{Inner, Pipeline, Running};
 use crate::clock::system_clock;
+use crate::coalesce::Coalescer;
 use crate::config::{
     check_values, load_manifest, load_pipeline_config, resolve_queues, shipped_manifest,
     shipped_pipeline_config,
 };
 use crate::dead::DeadLetters;
+use crate::gate::{Ambient, Gate};
 use crate::ingress::Ingress;
 use crate::observe::{NoopSink, OutcomeSink};
 use crate::store::{self, Ledger, Tombstones};
+use crate::turn::Lanes;
 use crate::{Error, Result};
 
 /// Where a file-backed setting comes from.
@@ -148,8 +151,12 @@ impl PipelineBuilder {
             Arc::clone(&self.queues),
             Arc::clone(&self.docs),
             ledger.clone(),
-            self.consumer,
+            self.consumer.clone(),
         );
+        let gate = Gate::new(&self.docs)?;
+        let ambient = Ambient::new(&self.docs)?;
+        let coalescer = Coalescer::new(&self.docs)?;
+        let lanes = Lanes::new(Arc::clone(&self.queues), tombstones.clone());
         Ok(Pipeline {
             inner: Arc::new(Inner {
                 queues: self.queues,
@@ -163,6 +170,11 @@ impl PipelineBuilder {
                 tombstones,
                 ingress,
                 dead,
+                gate,
+                ambient,
+                coalescer,
+                lanes,
+                consumer: self.consumer,
             }),
         })
     }

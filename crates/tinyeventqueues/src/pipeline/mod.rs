@@ -12,6 +12,7 @@
 //! Work advances in passes: [`Pipeline::drain`] runs one.
 
 mod builder;
+mod pass;
 
 use std::sync::{Arc, RwLock};
 
@@ -22,10 +23,13 @@ use tinystoragedrivers_core::queue::{QueueManifest, QueueStore};
 use tinystoragedrivers_core::{Clock, DocumentStore};
 
 use crate::Result;
+use crate::coalesce::Coalescer;
 use crate::config::{ResolvedQueues, check_values, resolve_queues};
 use crate::dead::DeadLetters;
+use crate::gate::{Ambient, Gate};
 use crate::ingress::Ingress;
 use crate::store::{Ledger, Tombstones};
+use crate::turn::Lanes;
 
 pub use builder::PipelineBuilder;
 
@@ -51,6 +55,11 @@ struct Inner {
     tombstones: Tombstones,
     ingress: Ingress,
     dead: DeadLetters,
+    gate: Gate,
+    ambient: Ambient,
+    coalescer: Coalescer,
+    lanes: Lanes,
+    consumer: String,
 }
 
 impl std::fmt::Debug for Inner {
@@ -178,9 +187,11 @@ impl Pipeline {
         self.inner.dead.redrive(&running.queues, id).await
     }
 
-    /// Run one pass of the pipeline: settle parked dead letters, record dead
-    /// outcomes for work its queues dead-lettered, and prune expired
-    /// tombstones and outcome records.
+    /// Run one pass of the pipeline: take events off the ingress queue
+    /// through the gate into the debounce buffer, flush due buffers into
+    /// lane queues, settle parked dead letters, record dead outcomes for work
+    /// its queues dead-lettered, and prune expired tombstones and outcome
+    /// records.
     ///
     /// # Errors
     ///
@@ -190,6 +201,8 @@ impl Pipeline {
         let now = self.now();
         let ttl = running.config.ingress.tombstone_ttl_ms;
         let mut report = DrainReport::default();
+        report.ingested = self.take_ingress(&running, now).await?;
+        report.flushed = self.flush_due(&running, now).await?;
         self.inner.dead.settle(&running.queues.dead).await?;
         report.dead = self.inner.dead.sweep(&running.queues, now, ttl).await?;
         report.pruned =

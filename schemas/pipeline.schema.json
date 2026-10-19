@@ -5,7 +5,12 @@
   "description": "The tunables of the inbound event pipeline. Loaded by tinyeventqueues::config::load_pipeline_config, which rejects unknown fields and names the offending field in every error. Queue names refer to queues declared in queues.json.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "ingress", "dead_letter", "lanes"],
+  "required": [
+    "version",
+    "ingress",
+    "dead_letter",
+    "lanes"
+  ],
   "properties": {
     "$schema": {
       "type": "string",
@@ -15,13 +20,27 @@
       "const": 1,
       "description": "Configuration format version."
     },
-    "ingress": { "$ref": "#/$defs/ingress" },
-    "dead_letter": { "$ref": "#/$defs/dead_letter" },
-    "lanes": { "$ref": "#/$defs/lanes" },
+    "ingress": {
+      "$ref": "#/$defs/ingress"
+    },
+    "dead_letter": {
+      "$ref": "#/$defs/dead_letter"
+    },
+    "lanes": {
+      "$ref": "#/$defs/lanes"
+    },
     "sources": {
       "type": "array",
       "description": "Per-source policies, first match wins. A source no entry matches gets every default.",
-      "items": { "$ref": "#/$defs/source" }
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "gate": {
+      "$ref": "#/$defs/gate"
+    },
+    "coalesce": {
+      "$ref": "#/$defs/coalesce"
     }
   },
   "$defs": {
@@ -33,9 +52,13 @@
     "ingress": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["queue"],
+      "required": [
+        "queue"
+      ],
       "properties": {
-        "queue": { "$ref": "#/$defs/queue_name" },
+        "queue": {
+          "$ref": "#/$defs/queue_name"
+        },
         "tombstone_ttl_ms": {
           "type": "integer",
           "minimum": 1,
@@ -54,28 +77,49 @@
     "dead_letter": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["queue"],
+      "required": [
+        "queue"
+      ],
       "properties": {
-        "queue": { "$ref": "#/$defs/queue_name" }
+        "queue": {
+          "$ref": "#/$defs/queue_name"
+        }
       }
     },
     "lanes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["interactive", "actionable", "background", "digest"],
+      "required": [
+        "interactive",
+        "actionable",
+        "background",
+        "digest"
+      ],
       "properties": {
-        "interactive": { "$ref": "#/$defs/lane" },
-        "actionable": { "$ref": "#/$defs/lane" },
-        "background": { "$ref": "#/$defs/lane" },
-        "digest": { "$ref": "#/$defs/lane" }
+        "interactive": {
+          "$ref": "#/$defs/lane"
+        },
+        "actionable": {
+          "$ref": "#/$defs/lane"
+        },
+        "background": {
+          "$ref": "#/$defs/lane"
+        },
+        "digest": {
+          "$ref": "#/$defs/lane"
+        }
       }
     },
     "lane": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["queue"],
+      "required": [
+        "queue"
+      ],
       "properties": {
-        "queue": { "$ref": "#/$defs/queue_name" },
+        "queue": {
+          "$ref": "#/$defs/queue_name"
+        },
         "concurrency": {
           "type": "integer",
           "minimum": 1,
@@ -88,7 +132,9 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["match"],
+      "required": [
+        "match"
+      ],
       "properties": {
         "match": {
           "type": "string",
@@ -96,9 +142,152 @@
           "description": "An exact source (channel:telegram), a prefix ending in * (channel:*), or * for every source."
         },
         "ack": {
-          "enum": ["after_ingest", "after_dispatch", "after_turn"],
+          "enum": [
+            "after_ingest",
+            "after_dispatch",
+            "after_turn"
+          ],
           "default": "after_ingest",
           "description": "When the platform may be acknowledged."
+        }
+      }
+    },
+    "sender_list": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Sender ids, or <source>/<sender id> to name one source's sender."
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Deterministic checks that decide, without a model, whether an event may go on towards the agent.",
+      "properties": {
+        "allow_senders": {
+          "$ref": "#/$defs/sender_list",
+          "description": "If not empty, only these senders pass."
+        },
+        "deny_senders": {
+          "$ref": "#/$defs/sender_list",
+          "description": "These senders never pass. Wins over allow_senders."
+        },
+        "direct_messages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Direct messages may reach the agent."
+        },
+        "groups": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group conversations may reach the agent."
+        },
+        "bot_loop": {
+          "$ref": "#/$defs/bot_loop"
+        },
+        "rate_limits": {
+          "$ref": "#/$defs/rate_limits"
+        },
+        "ambient": {
+          "$ref": "#/$defs/ambient"
+        }
+      }
+    },
+    "bot_loop": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A bot sending more than max_events into one conversation within window_ms is looping; the excess is dropped.",
+      "properties": {
+        "max_events": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20
+        },
+        "window_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 60000
+        }
+      }
+    },
+    "rate_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Token buckets; an event over any of them spills to the digest lane. A missing bucket is unlimited.",
+      "properties": {
+        "per_sender": {
+          "$ref": "#/$defs/rate_limit"
+        },
+        "per_conversation": {
+          "$ref": "#/$defs/rate_limit"
+        },
+        "per_source": {
+          "$ref": "#/$defs/rate_limit"
+        }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capacity",
+        "refill_per_minute"
+      ],
+      "properties": {
+        "capacity": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Burst size."
+        },
+        "refill_per_minute": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Tokens added per minute."
+        }
+      }
+    },
+    "ambient": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Unaddressed group chatter kept per conversation and surfaced with its next turn.",
+      "properties": {
+        "max_items": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 50,
+          "description": "Events kept per conversation; the oldest are evicted."
+        }
+      }
+    },
+    "coalesce": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The debounce buffer keyed by conversation, thread and sender.",
+      "properties": {
+        "debounce_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1500,
+          "description": "Flush this long after a key's last event."
+        },
+        "max_wait_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 10000,
+          "description": "Flush this long after a key's first event at the latest."
+        },
+        "control_prefixes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": [
+            "/"
+          ],
+          "description": "Text prefixes that mark a control command, which flushes at once."
         }
       }
     }

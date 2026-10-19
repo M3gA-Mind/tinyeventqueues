@@ -99,3 +99,37 @@ fn lanes_have_stable_wire_names() {
         assert_eq!(serde_json::to_value(lane).unwrap(), json!(lane.as_str()));
     }
 }
+
+#[test]
+fn gate_and_coalesce_sections_default_when_absent() {
+    let config: PipelineConfig = serde_json::from_value(minimal()).unwrap();
+    assert!(config.gate.direct_messages && config.gate.groups);
+    assert_eq!(config.gate.bot_loop.max_events, 20);
+    assert_eq!(config.gate.bot_loop.window_ms, 60_000);
+    assert_eq!(config.gate.ambient.max_items, 50);
+    assert_eq!(config.gate.rate_limits.per_sender, None);
+    assert_eq!(config.coalesce.debounce_ms, 1_500);
+    assert_eq!(config.coalesce.max_wait_ms, 10_000);
+    assert_eq!(config.coalesce.control_prefixes, ["/"]);
+}
+
+#[test]
+fn rate_limits_round_trip_and_reject_unknown_fields() {
+    let mut value = minimal();
+    value["gate"] =
+        json!({"rate_limits": {"per_source": {"capacity": 5, "refill_per_minute": 60}}});
+    let config: PipelineConfig = serde_json::from_value(value).unwrap();
+    assert_eq!(
+        config.gate.rate_limits.per_source,
+        Some(super::RateLimit::new(5, 60))
+    );
+    let encoded = serde_json::to_value(&config).unwrap();
+    assert_eq!(
+        serde_json::from_value::<PipelineConfig>(encoded).unwrap(),
+        config
+    );
+
+    let mut typo = minimal();
+    typo["coalesce"] = json!({"debounce": 5});
+    assert!(serde_json::from_value::<PipelineConfig>(typo).is_err());
+}

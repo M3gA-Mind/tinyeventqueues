@@ -12,11 +12,11 @@ the delivery order is [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline
   and without native dedupe
 - the outcome ledger, dead-letter parking, `ListDead` and `Redrive`
 - the TinyBus adapter over in-process storage
+- the gate (allow/deny, DM/group policy, self-echo, bot-loop guard, durable
+  token buckets), ambient context, and the durable debounce buffer
 
 ## Next
 
-- gate (allow/deny, DM/group policy, self-echo, bot-loop guard, token
-  buckets), coalescing and ambient context
 - salience with habituation and borderline host classification; lanes and
   digest spill
 - cadence scheduler with ingestion budgets and overflow folding

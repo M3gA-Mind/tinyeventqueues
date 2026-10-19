@@ -12,8 +12,8 @@
 //!
 //! and every ingested event ends in exactly one terminal [`Disposition`]:
 //! delivered, context, digest, dead, or dropped with a [`Reason`]. The full
-//! contract is `docs/specs/event-pipeline.md`; this release implements the
-//! ingress stage, tombstones, dead letters and configuration.
+//! contract is `docs/specs/event-pipeline.md`; this release implements
+//! ingress, the gate, coalescing, dead letters and configuration.
 //!
 //! # Storage
 //!
@@ -54,14 +54,17 @@
 //! ```
 
 pub mod clock;
+mod coalesce;
 pub mod config;
 mod dead;
 mod error;
+mod gate;
 pub mod ingress;
 pub mod observe;
 mod pipeline;
 mod store;
 mod tinybus_module;
+mod turn;
 
 #[cfg(test)]
 mod test_support;
@@ -75,12 +78,13 @@ pub use pipeline::{Pipeline, PipelineBuilder};
 // this crate resolves to the same definitions the contract crate publishes.
 pub use tinyeventqueues_bus;
 pub use tinyeventqueues_bus::{
-    AckPolicy, CONTRACT_VERSION, ClassifySalienceRequest, ClassifySalienceResponse,
-    ConfigureRequest, ConfigureResponse, DeadItem, DeadLetterConfig, DeliverRequest,
-    DeliverResponse, DeliverStatus, Disposition, DrainReport, DrainRequest, DrainResponse,
-    EventKind, EventRef, INTERFACE, InboundEvent, IngestRequest, IngestResponse, IngestResult,
-    IngressConfig, Lane, LaneConfig, LanesConfig, ListDeadRequest, ListDeadResponse, METHODS,
-    MediaRef, OBJECT_PATH, Outcome, OutcomeCounts, PayloadRef, PipelineConfig, QueueDepth, Reason,
-    RedriveRequest, RedriveResponse, SalienceClass, Sender, SourcePolicy, StatsRequest,
-    StatsResponse, Turn, is_compatible, names, version,
+    AckPolicy, AmbientConfig, BotLoopConfig, CONTRACT_VERSION, ClassifySalienceRequest,
+    ClassifySalienceResponse, CoalesceConfig, ConfigureRequest, ConfigureResponse, DeadItem,
+    DeadLetterConfig, DeliverRequest, DeliverResponse, DeliverStatus, Disposition, DrainReport,
+    DrainRequest, DrainResponse, EventKind, EventRef, GateConfig, INTERFACE, InboundEvent,
+    IngestRequest, IngestResponse, IngestResult, IngressConfig, Lane, LaneConfig, LanesConfig,
+    ListDeadRequest, ListDeadResponse, METHODS, MediaRef, OBJECT_PATH, Outcome, OutcomeCounts,
+    PayloadRef, PipelineConfig, QueueDepth, RateLimit, RateLimits, Reason, RedriveRequest,
+    RedriveResponse, SalienceClass, Sender, SourcePolicy, StatsRequest, StatsResponse, Turn,
+    is_compatible, names, version,
 };

@@ -1,7 +1,7 @@
 # Inbound Event Pipeline
 
-**Status:** Accepted. Ingress, tombstones, dead letters and configuration are
-implemented; the later stages land in the order of
+**Status:** Accepted. Ingress, tombstones, the gate, coalescing, dead letters
+and configuration are implemented; the later stages land in the order of
 [the plan](../plans/event-pipeline.md). **Owner:** tinyeventqueues.
 
 ## Problem
