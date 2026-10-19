@@ -468,3 +468,33 @@ async fn a_restart_mid_debounce_loses_nothing() {
     let turns = take_turns(&fixture, &restarted, Lane::Interactive).await;
     assert_eq!(ids(&turns[0].events), ["1", "2"]);
 }
+
+#[tokio::test]
+async fn the_pass_runs_on_a_backend_without_dedupe_or_groups() {
+    let fixture = Fixture::with_native(false);
+    let pipeline = fixture.pipeline().await;
+    pipeline
+        .ingest(vec![
+            mention("1", "a"),
+            mention("2", "a"),
+            mention("3", "b"),
+        ])
+        .await
+        .unwrap();
+    pipeline.drain().await.unwrap();
+    fixture.clock.advance(10_000);
+    assert_eq!(pipeline.drain().await.unwrap().flushed, 2);
+    let mut turns: Vec<_> = take_turns(&fixture, &pipeline, Lane::Interactive)
+        .await
+        .into_iter()
+        .map(|t| (t.conversation_key, ids(&t.events).join(",")))
+        .collect();
+    turns.sort();
+    assert_eq!(
+        turns,
+        [("a".into(), "1,2".into()), ("b".into(), "3".into())]
+    );
+    // A redelivery is still recognized.
+    let again = pipeline.ingest(vec![mention("1", "a")]).await.unwrap();
+    assert_eq!(again.results[0].disposition, Disposition::Duplicate);
+}

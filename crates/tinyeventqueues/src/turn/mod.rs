@@ -17,6 +17,7 @@ use tinystoragedrivers_core::queue::{NewMessage, QueueStore};
 
 use crate::Result;
 use crate::config::QueueRef;
+use crate::store::Tombstones;
 
 /// A turn waiting in a lane queue.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,25 +81,57 @@ impl PendingTurn {
 }
 
 /// Writes pending turns to lane queues.
+///
+/// On a backend with dedupe the turn id is the message's dedupe key; without
+/// it, a tombstone per turn id in the document store (written after the
+/// enqueue) recognizes a re-enqueue. On a backend with groups the
+/// conversation is the message's group; without them the dispatcher
+/// serializes conversations itself.
 #[derive(Debug, Clone)]
 pub(crate) struct Lanes {
     queues: Arc<dyn QueueStore>,
+    tombstones: Tombstones,
 }
 
+/// The tombstone namespace of turn ids.
+const TURN_TOMBSTONES: &str = "turn";
+
 impl Lanes {
-    pub(crate) fn new(queues: Arc<dyn QueueStore>) -> Self {
-        Self { queues }
+    pub(crate) fn new(queues: Arc<dyn QueueStore>, tombstones: Tombstones) -> Self {
+        Self { queues, tombstones }
     }
 
-    /// Enqueue `turn` on `queue`, grouped by its conversation so a
-    /// conversation has one turn in flight. Returns `false` when the turn was
-    /// already queued.
-    pub(crate) async fn enqueue(&self, queue: &QueueRef, turn: &PendingTurn) -> Result<bool> {
-        let mut message = NewMessage::new(serde_json::to_value(turn)?).dedupe_key(&turn.turn_id);
-        if !turn.conversation_key.is_empty() {
+    /// Enqueue `turn` on `queue`. Returns `false` when the turn was already
+    /// queued. Without native dedupe, the turn's tombstone lives `ttl_ms`.
+    pub(crate) async fn enqueue(
+        &self,
+        queue: &QueueRef,
+        turn: &PendingTurn,
+        now: u64,
+        ttl_ms: u64,
+    ) -> Result<bool> {
+        let features = self.queues.features();
+        if !features.dedupe
+            && self
+                .tombstones
+                .live(TURN_TOMBSTONES, &turn.turn_id, now)
+                .await?
+        {
+            return Ok(false);
+        }
+        let mut message = NewMessage::new(serde_json::to_value(turn)?);
+        if features.dedupe {
+            message = message.dedupe_key(&turn.turn_id);
+        }
+        if features.groups && !turn.conversation_key.is_empty() {
             message = message.group(&turn.conversation_key);
         }
         let stored = self.queues.enqueue(&queue.name, &[message]).await?;
+        if !features.dedupe {
+            self.tombstones
+                .put(TURN_TOMBSTONES, &turn.turn_id, now.saturating_add(ttl_ms))
+                .await?;
+        }
         Ok(stored.first().is_some_and(|stored| !stored.duplicate))
     }
 }

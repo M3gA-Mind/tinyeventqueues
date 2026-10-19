@@ -168,7 +168,7 @@ impl PipelineBuilder {
         let gate = Gate::new(&self.docs)?;
         let ambient = Ambient::new(&self.docs)?;
         let coalescer = Coalescer::new(&self.docs)?;
-        let lanes = Lanes::new(Arc::clone(&self.queues));
+        let lanes = Lanes::new(Arc::clone(&self.queues), tombstones.clone());
         let habituation = Habituation::new(&self.docs)?;
         let digest = Digest::new(&self.docs)?;
         Ok(Pipeline {

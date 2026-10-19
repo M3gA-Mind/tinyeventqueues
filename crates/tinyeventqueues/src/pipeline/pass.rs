@@ -193,7 +193,10 @@ impl Pipeline {
         let mut turn =
             PendingTurn::new(lane, Reason::Turn, events.to_vec(), absorbed.to_vec(), now)?;
         turn.context = self.inner.ambient.peek(&source, &conversation).await?;
-        self.inner.lanes.enqueue(queue, &turn).await?;
+        self.inner
+            .lanes
+            .enqueue(queue, &turn, now, config.ingress.tombstone_ttl_ms)
+            .await?;
         let taken: Vec<_> = turn.context.iter().map(InboundEvent::reference).collect();
         self.inner
             .ambient
@@ -260,7 +263,12 @@ impl Pipeline {
         while let Some(turn) = self.inner.digest.due(&running.config.digest, now).await? {
             self.inner
                 .lanes
-                .enqueue(running.queues.lane(Lane::Digest), &turn)
+                .enqueue(
+                    running.queues.lane(Lane::Digest),
+                    &turn,
+                    now,
+                    running.config.ingress.tombstone_ttl_ms,
+                )
                 .await?;
             self.inner.digest.release(&turn, now).await?;
             released += 1;

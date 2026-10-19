@@ -11,7 +11,9 @@ use tinystoragedrivers_core::queue::{
     DeadLetter, Delivery, DocumentQueue, Enqueued, NewMessage, QueueFeatures, QueueSpec,
     QueueStats, QueueStore, Receipt, Retry,
 };
-use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Result, Scope, StorageBackend};
+use tinystoragedrivers_core::{
+    DocumentStore, MemoryStorage, Result, Scope, StorageBackend, StorageError,
+};
 
 use crate::{ManualClock, Pipeline, PipelineBuilder};
 
@@ -24,24 +26,25 @@ pub(crate) struct Fixture {
 }
 
 impl Fixture {
-    /// A queue backend with native dedupe.
+    /// A queue backend with every feature (`DocumentQueue`).
     pub(crate) fn new() -> Self {
-        Self::with_dedupe(true)
+        Self::with_native(true)
     }
 
-    /// A queue backend that reports `dedupe` as given and, without it,
-    /// ignores dedupe keys the way a broker would.
-    pub(crate) fn with_dedupe(dedupe: bool) -> Self {
+    /// With `native`, a `DocumentQueue`; without, a [`Broker`] that has
+    /// neither dedupe nor groups and refuses messages that use them, the way
+    /// the `RabbitMQ` driver does.
+    pub(crate) fn with_native(native: bool) -> Self {
         let clock = ManualClock::new(START_MS);
         let storage = MemoryStorage::with_clock(clock.clock())
             .for_scope(&Scope::local())
             .unwrap();
         let docs = Arc::clone(storage.documents());
         let queue = DocumentQueue::new(&docs).with_clock(clock.clock());
-        let queues: Arc<dyn QueueStore> = if dedupe {
+        let queues: Arc<dyn QueueStore> = if native {
             Arc::new(queue)
         } else {
-            Arc::new(NoDedupe(queue))
+            Arc::new(Broker(queue))
         };
         Self {
             clock,
@@ -77,15 +80,17 @@ pub(crate) fn event(source: &str, id: &str, conversation: &str) -> InboundEvent 
     .text(format!("message {id} {}", words(id)))
 }
 
-/// A queue backend without dedupe: a broker such as `RabbitMQ`.
+/// A queue backend like the `RabbitMQ` driver: no dedupe and no groups, and
+/// a message that sets `group` or `dedupe_key` is refused.
 #[derive(Debug)]
-pub(crate) struct NoDedupe(pub(crate) DocumentQueue);
+pub(crate) struct Broker(pub(crate) DocumentQueue);
 
 #[async_trait]
-impl QueueStore for NoDedupe {
+impl QueueStore for Broker {
     fn features(&self) -> QueueFeatures {
         QueueFeatures {
             dedupe: false,
+            groups: false,
             ..self.0.features()
         }
     }
@@ -93,15 +98,15 @@ impl QueueStore for NoDedupe {
         self.0.ensure_queue(queue, spec).await
     }
     async fn enqueue(&self, queue: &str, messages: &[NewMessage]) -> Result<Vec<Enqueued>> {
-        let stripped: Vec<NewMessage> = messages
+        if messages
             .iter()
-            .cloned()
-            .map(|mut message| {
-                message.dedupe_key = None;
-                message
-            })
-            .collect();
-        self.0.enqueue(queue, &stripped).await
+            .any(|message| message.group.is_some() || message.dedupe_key.is_some())
+        {
+            return Err(StorageError::invalid_input(
+                "this queue backend supports neither groups nor dedupe keys",
+            ));
+        }
+        self.0.enqueue(queue, messages).await
     }
     async fn receive(
         &self,
