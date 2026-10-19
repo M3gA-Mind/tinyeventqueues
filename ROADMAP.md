@@ -24,8 +24,6 @@ the delivery order is [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline
 - dispatch through `Deliver`, retries and dead letters; the no-loss property
   test and a 10,000-event flood test
 - wiring the module to the host's storage through the storage bus
-- re-pinning `tinystoragedrivers-core` once tinyhumansai/tinystoragedrivers#71
-  merges
 
 ## Out Of Scope
 

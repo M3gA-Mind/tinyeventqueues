@@ -193,3 +193,9 @@ async fn the_broker_double_refuses_groups_and_dedupe_keys() {
         );
     }
 }
+
+#[tokio::test]
+async fn the_broker_double_passes_the_queue_conformance_suite() {
+    let fixture = Fixture::with_native(false);
+    tinystoragedrivers_core::conformance::run_queue(fixture.queues.as_ref()).await;
+}

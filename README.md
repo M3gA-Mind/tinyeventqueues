@@ -113,10 +113,8 @@ cargo run -p tinyeventqueues --example basic
 .github/scripts/check-file-coverage.sh 90 coverage.json   # needs cargo-llvm-cov
 ```
 
-`tinystoragedrivers-core` is pinned to the fork branch carrying the queue port
-(tinyhumansai/tinystoragedrivers#71) until that PR merges; it must then be
-re-pinned to a tinyhumansai revision and the `allow-git` entry in `deny.toml`
-removed.
+`tinystoragedrivers-core` is a git dependency pinned to a tinyhumansai
+revision (the one that merged the queue port, tinyhumansai/tinystoragedrivers#71).
 
 ## Releasing
 
