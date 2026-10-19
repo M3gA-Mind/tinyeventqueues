@@ -519,6 +519,52 @@ pub struct LaneConfig {
     /// the digest (`lane_overflow`). Ignored for the digest lane itself.
     #[serde(default = "default_max_backlog")]
     pub max_backlog: u64,
+    /// When the lane's turns are released: `instant` (the default),
+    /// `every(<n><ms|s|m|h|d>)`, or `cron("<min> <hour> <day> <month>
+    /// <weekday>")` in UTC. A source's own cadence takes precedence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cadence: Option<String>,
+    /// How many turns the cadence releases per tick (per second for
+    /// `instant`). Absent, unlimited.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<Budget>,
+}
+
+/// An ingestion budget for a cadence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct Budget {
+    /// Turns released per tick; for an `instant` cadence, per second.
+    pub max_turns: u32,
+    /// Waiting turns beyond `max_turns * backlog_ticks` fold into the
+    /// digest instead of waiting for later ticks.
+    #[serde(default = "default_backlog_ticks")]
+    pub backlog_ticks: u32,
+    /// An `instant` cadence over budget holds new turns this long, folding
+    /// each conversation's events into one, until it is under budget again.
+    #[serde(default = "default_degrade_debounce_ms")]
+    pub degrade_debounce_ms: u64,
+}
+
+fn default_backlog_ticks() -> u32 {
+    3
+}
+
+fn default_degrade_debounce_ms() -> u64 {
+    5_000
+}
+
+impl Budget {
+    /// A budget of `max_turns` with the default backlog and debounce.
+    #[must_use]
+    pub fn new(max_turns: u32) -> Self {
+        Self {
+            max_turns,
+            backlog_ticks: default_backlog_ticks(),
+            degrade_debounce_ms: default_degrade_debounce_ms(),
+        }
+    }
 }
 
 fn default_max_backlog() -> u64 {
@@ -594,6 +640,14 @@ pub struct SourcePolicy {
     /// Salience points the source adds (or, negative, takes away).
     #[serde(default)]
     pub weight: i32,
+    /// The source's cadence, overriding its lane's; same forms as
+    /// [`LaneConfig::cadence`]. Every source this entry matches shares it
+    /// and its budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cadence: Option<String>,
+    /// The budget of the source's cadence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<Budget>,
 }
 
 impl Default for SourcePolicy {
@@ -602,6 +656,8 @@ impl Default for SourcePolicy {
             pattern: "*".to_owned(),
             ack: AckPolicy::default(),
             weight: 0,
+            cadence: None,
+            budget: None,
         }
     }
 }
