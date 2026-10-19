@@ -14,6 +14,7 @@
 mod builder;
 mod dispatch;
 mod pass;
+mod wake;
 
 use std::sync::{Arc, RwLock};
 
@@ -89,7 +90,7 @@ impl Pipeline {
         PipelineBuilder::new(queues, docs)
     }
 
-    fn now(&self) -> u64 {
+    pub(crate) fn now(&self) -> u64 {
         (self.inner.clock)()
     }
 

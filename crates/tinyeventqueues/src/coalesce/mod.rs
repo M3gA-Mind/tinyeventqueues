@@ -171,6 +171,15 @@ impl Coalescer {
 
     /// Every buffer that should flush at `now`, with the rest of its thread,
     /// oldest arrival first within each thread. At most `limit` threads.
+    /// When the earliest buffer flushes, or `None` when nothing is buffered.
+    pub(crate) async fn earliest_due(&self) -> Result<Option<u64>> {
+        let query = Query::all().sort(Sort::asc("due_ms")).limit(1);
+        let first = self.repo.query(&query).await?.items.into_iter().next();
+        Ok(first
+            .map(|found| found.doc.due_ms)
+            .filter(|due| *due != u64::MAX))
+    }
+
     pub(crate) async fn due(&self, now: u64, limit: usize) -> Result<Vec<Due>> {
         let query = Query::filter(Filter::lte("due_ms", now))
             .sort(Sort::asc("due_ms"))

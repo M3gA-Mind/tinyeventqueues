@@ -72,6 +72,18 @@ mod turn;
 #[cfg(test)]
 mod test_support;
 
+/// Entry points for a host that links the module into its own executable
+/// (a host's `linked` module source) instead of loading the `cdylib`.
+#[cfg(feature = "static-link")]
+pub mod linked {
+    pub use crate::tinybus_module::exports::{
+        TINYBUS_MODULE_ABI_V1, tinybus_module_init_v1, tinybus_module_manifest_v1,
+    };
+}
+
+#[cfg(feature = "static-link")]
+pub use tinybus_module::exports::linked_module;
+
 pub use clock::{Clock, ManualClock, system_clock};
 pub use error::{Error, Result};
 pub use host::Host;

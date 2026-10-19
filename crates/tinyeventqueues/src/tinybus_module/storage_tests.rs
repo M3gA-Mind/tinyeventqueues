@@ -1,0 +1,43 @@
+//! Tests for opening the module's storage: the host's over the bus, and the
+//! memory fallback.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use tinyeventqueues_bus::storage::OUTCOMES;
+use tinystoragedrivers_core::{Precondition, Scope, StorageBackend};
+
+use super::*;
+use crate::tinybus_module::tests::rig;
+
+#[tokio::test]
+async fn a_host_that_serves_storage_backs_the_pipeline() {
+    let rig = rig(true).await;
+    let module = Connection::connect(rig.bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let backing = open(module).await.unwrap();
+    assert!(backing.durable);
+    assert!(format!("{backing:?}").contains("durable: true"));
+
+    // A write through the module lands in the host's backend.
+    for spec in tinyeventqueues_bus::storage::collection_specs() {
+        backing.docs.ensure_collection(&spec).await.unwrap();
+    }
+    backing
+        .docs
+        .put(OUTCOMES, "x", serde_json::json!({}), Precondition::None)
+        .await
+        .unwrap();
+    let host = rig.backend.for_scope(&Scope::local()).unwrap();
+    assert!(host.documents().get(OUTCOMES, "x").await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn a_host_without_storage_leaves_the_pipeline_on_memory() {
+    let rig = rig(false).await;
+    let module = Connection::connect(rig.bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let backing = open(module).await.unwrap();
+    assert!(!backing.durable);
+}

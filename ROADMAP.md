@@ -11,8 +11,10 @@ the delivery order is [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline
 - ingress with completion tombstones that survive a restart, on backends with
   and without native dedupe
 - the outcome ledger, dead-letter parking, `ListDead` and `Redrive`
-- the TinyBus adapter over in-process storage, calling the host back over
-  the bus
+- the TinyBus adapter over the host's storage (storage bus documents and
+  queues, memory only when the host serves none), calling the host back over
+  the bus, with a module-owned pass timer, a private configuration blob and a
+  `static-link` build for hosts that link the module
 - the gate (allow/deny, DM/group policy, self-echo, bot-loop guard, durable
   token buckets), ambient context, and the durable debounce buffer
 - salience with habituation and borderline host classification; lanes with
@@ -27,8 +29,6 @@ the delivery order is [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline
 
 ## Next
 
-- wiring the module to the host's storage through the storage bus, and a
-  module-side timer so passes run without the host calling `Drain`
 - adopting the shared module CI and release workflows
 
 ## Out Of Scope

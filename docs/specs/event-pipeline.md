@@ -155,6 +155,26 @@ Module interface `ai.tinyhumans.tinyeventqueues.EventQueues`: `Ingest`,
 `ai.tinyhumans.tinyeventqueues.Host`: `ClassifySalience`, `Deliver`. Payloads
 are in `tinyeventqueues-bus`.
 
+## Loaded module
+
+- Storage: the module connects to the host's `Storage` objects over the
+  storage bus and takes the one scope the host bound it to. Its `teq.*`
+  collections are declared by `tinyeventqueues-bus::storage::storage_schema()`
+  (owner `teq`, module scope), from which the host derives the grant; its
+  queues are those `queues.json` declares, served by the host's queue port.
+  With no host storage the module runs on memory and logs an error.
+- Configuration: an optional private blob carries `queues` (a `queues.json`
+  document), `pipeline` (a `pipeline.json` document) and `timer` bounds;
+  absent fields run the shipped files. The manifest is applied through the
+  queue port at setup.
+- Passes: a module-owned timer runs a pass, then sleeps until the next wake
+  (ready ingress or lane work, the earliest debounce flush, the earliest staged
+  cadence release), clamped to `[min_interval_ms, max_interval_ms]`; `Ingest`
+  and a successful `Redrive` wake it at once. `Drain` runs a pass on demand.
+  A failed pass is logged and retried; it never stops the timer.
+- Callbacks: `ai.tinyhumans.tinyeventqueues.Host` is an optional dependency.
+  Without it classification keeps the scored class and deliveries back off.
+
 ## Invariants and constraints
 
 - An event is persisted before `Ingest` returns, and before the platform is
@@ -185,9 +205,3 @@ are in `tinyeventqueues-bus`.
 - The no-loss property holds over randomized mixed traffic, and a 10,000-event
   flood keeps per-conversation order, never merges threads, and keeps
   interactive latency bounded while background floods.
-
-## Open questions
-
-- Wiring the loaded module to the host's storage through the
-  `tinystoragedrivers` storage bus (until then the module runs over in-process
-  memory storage).

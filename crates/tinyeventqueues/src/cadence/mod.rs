@@ -254,6 +254,14 @@ impl Scheduler {
         Ok(self.staged.get(&id).await?)
     }
 
+    /// When the earliest staged entry is due, or `None` when nothing is
+    /// staged.
+    pub(crate) async fn earliest_due(&self) -> Result<Option<u64>> {
+        let query = Query::all().sort(Sort::asc("due_ms")).limit(1);
+        let first = self.staged.query(&query).await?.items.into_iter().next();
+        Ok(first.map(|found| found.doc.due_ms))
+    }
+
     /// Staged entries due at `now`, oldest first.
     pub(crate) async fn due(&self, now: u64) -> Result<Vec<Versioned<Staged>>> {
         let query = Query::filter(Filter::lte("due_ms", now)).sort(Sort::asc("first_ms"));
