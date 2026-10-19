@@ -1,26 +1,33 @@
 # Roadmap
 
-Replace this file with the real plan for the crate generated from this
-template, or delete it if the project does not need a public roadmap.
-
-Keep it short and honest: what exists, what is next, and what is deliberately
-out of scope. A roadmap that lists everything is a roadmap nobody trusts.
+The contract is [`docs/specs/event-pipeline.md`](docs/specs/event-pipeline.md);
+the delivery order is [`docs/plans/event-pipeline.md`](docs/plans/event-pipeline.md).
 
 ## Shipped
 
-- module layout, crate-wide error type, and the public re-export surface
-- lint configuration in `[lints]`, enforced identically locally and in CI
-- CI: format, clippy, build, test, per-file coverage, rustdoc, MSRV, and
-  supply-chain checks
-- a manual release workflow that versions, tags, publishes to crates.io, and
-  creates a GitHub release with crate and TinyBus runtime/module assets
+- the wire contract (`tinyeventqueues-bus`): envelope, members, host
+  callbacks, outcomes, configuration
+- `queues.json` and `pipeline.json`, strict, with field-path errors
+- ingress with completion tombstones that survive a restart, on backends with
+  and without native dedupe
+- the outcome ledger, dead-letter parking, `ListDead` and `Redrive`
+- the TinyBus adapter over in-process storage
 
 ## Next
 
-- the first real feature area, replacing the placeholder `greeting` module
-- module-level `README.md` and `docs/spec/` entries as modules grow
+- gate (allow/deny, DM/group policy, self-echo, bot-loop guard, token
+  buckets), coalescing and ambient context
+- salience with habituation and borderline host classification; lanes and
+  digest spill
+- cadence scheduler with ingestion budgets and overflow folding
+- dispatch through `Deliver`, retries and dead letters; the no-loss property
+  test and a 10,000-event flood test
+- wiring the module to the host's storage through the storage bus
+- re-pinning `tinystoragedrivers-core` once tinyhumansai/tinystoragedrivers#71
+  merges
 
 ## Out Of Scope
 
-- anything that cannot be tested deterministically
-- convenience wrappers that hide the crate's error taxonomy from callers
+- talking to platforms: hosts normalize events and acknowledge platforms
+- running the agent: the host's `Deliver` does
+- exactly-once delivery: delivery is at least once, turns carry stable ids

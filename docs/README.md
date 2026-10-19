@@ -28,7 +28,9 @@ docs/
 Complex modules also carry a module-level `README.md` inside `src/<module>/`
 covering their design, public surface, and important constraints.
 
-The current module-release contract is in
+The pipeline contract is [`specs/event-pipeline.md`](specs/event-pipeline.md),
+delivered in the order of [`plans/event-pipeline.md`](plans/event-pipeline.md).
+The module-release contract is in
 [`specs/tinybus-module-release.md`](specs/tinybus-module-release.md), with its
 implementation sequence in
 [`plans/tinybus-module-release.md`](plans/tinybus-module-release.md).
