@@ -12,7 +12,7 @@ use crate::test_support::{Fixture, event};
 #[tokio::test]
 async fn a_redelivery_after_a_restart_is_rejected_on_both_backends() {
     for dedupe in [true, false] {
-        let fixture = Fixture::with_dedupe(dedupe);
+        let fixture = Fixture::with_native(dedupe);
         let first = fixture.pipeline().await;
         let accepted = first
             .ingest(vec![event("channel:telegram", "7", "c")])
@@ -30,7 +30,7 @@ async fn a_redelivery_after_a_restart_is_rejected_on_both_backends() {
         assert_eq!(
             again.results[0].disposition,
             Disposition::Duplicate,
-            "dedupe={dedupe}"
+            "native={dedupe}"
         );
         assert!(again.results[0].ack_platform);
         let ingress = restarted.queues().ingress.name;
@@ -41,7 +41,7 @@ async fn a_redelivery_after_a_restart_is_rejected_on_both_backends() {
 #[tokio::test]
 async fn a_processed_event_keeps_rejecting_redeliveries_until_its_tombstone_expires() {
     for dedupe in [true, false] {
-        let fixture = Fixture::with_dedupe(dedupe);
+        let fixture = Fixture::with_native(dedupe);
         let pipeline = fixture.pipeline().await;
         let ingress = pipeline.queues().ingress;
         pipeline.ingest(vec![event("s", "1", "c")]).await.unwrap();
@@ -64,7 +64,7 @@ async fn a_processed_event_keeps_rejecting_redeliveries_until_its_tombstone_expi
         assert_eq!(
             again.results[0].disposition,
             Disposition::Duplicate,
-            "dedupe={dedupe}"
+            "native={dedupe}"
         );
 
         // Thirty days later the tombstone is gone.
@@ -76,7 +76,7 @@ async fn a_processed_event_keeps_rejecting_redeliveries_until_its_tombstone_expi
         assert_eq!(
             late.results[0].disposition,
             Disposition::Accepted,
-            "dedupe={dedupe}"
+            "native={dedupe}"
         );
     }
 }

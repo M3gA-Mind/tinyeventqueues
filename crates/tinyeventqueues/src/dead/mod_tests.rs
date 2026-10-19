@@ -222,3 +222,26 @@ async fn malformed_ids_and_unknown_origins_are_errors() {
         crate::Error::UnknownDeadItem(_)
     ));
 }
+
+#[tokio::test]
+async fn a_redrive_on_a_backend_without_groups_drops_the_group() {
+    let fixture = Fixture::with_native(false);
+    let pipeline = fixture.pipeline().await;
+    let resolved = pipeline.queues();
+    let (dead, _) = parts(&fixture);
+    let lane = resolved
+        .lane(tinyeventqueues_bus::Lane::Interactive)
+        .name
+        .clone();
+    let message = NewMessage::new(serde_json::to_value(parked(&lane, "1")).unwrap());
+    fixture
+        .queues
+        .enqueue(&resolved.dead.name, &[message])
+        .await
+        .unwrap();
+    dead.settle(&resolved.dead).await.unwrap();
+    let items = dead.list(&resolved, 10).await.unwrap();
+    assert!(dead.redrive(&resolved, &items[0].id).await.unwrap());
+    let back = fixture.queues.receive(&lane, 10, 1_000, "t").await.unwrap();
+    assert_eq!(back[0].group, None);
+}
