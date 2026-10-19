@@ -41,3 +41,19 @@ async fn a_host_without_storage_leaves_the_pipeline_on_memory() {
     let backing = open(module).await.unwrap();
     assert!(!backing.durable);
 }
+
+#[tokio::test]
+async fn a_storage_host_that_cannot_be_reached_fails_setup_instead_of_using_memory() {
+    let rig = rig(false).await;
+    // Something owns the storage name but serves no storage objects: a host
+    // whose storage is present but failing.
+    rig.host
+        .request_name(tinystoragedrivers_busproxy::HOST_NAME)
+        .await
+        .unwrap();
+    let module = Connection::connect(rig.bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let refused = open(module).await;
+    assert!(refused.is_err(), "fell back to memory: {refused:?}");
+}

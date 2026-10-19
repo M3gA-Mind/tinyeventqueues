@@ -177,3 +177,65 @@ async fn the_manifest_declares_its_queues_on_build() {
     assert_eq!(pipeline.list_dead(10).await.unwrap(), Vec::new());
     assert!(!pipeline.redrive("teq.dead/none").await.unwrap());
 }
+
+/// A host whose deliveries take a while and that records how many ran at once.
+#[derive(Debug, Default)]
+struct SlowHost {
+    in_flight: std::sync::atomic::AtomicUsize,
+    most: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl crate::Host for SlowHost {
+    async fn classify_salience(
+        &self,
+        request: tinyeventqueues_bus::ClassifySalienceRequest,
+    ) -> crate::Result<tinyeventqueues_bus::ClassifySalienceResponse> {
+        let _ = request;
+        Err(Error::Host {
+            method: "ClassifySalience",
+            message: "unused".into(),
+        })
+    }
+
+    async fn deliver(
+        &self,
+        _request: tinyeventqueues_bus::DeliverRequest,
+    ) -> crate::Result<tinyeventqueues_bus::DeliverResponse> {
+        use std::sync::atomic::Ordering;
+        let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+        self.most.fetch_max(now, Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        Ok(tinyeventqueues_bus::DeliverResponse::new(
+            tinyeventqueues_bus::DeliverStatus::Accepted,
+        ))
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_passes_never_exceed_a_lane_concurrency_of_one() {
+    let fixture = Fixture::new();
+    let mut config = shipped_pipeline_config().unwrap();
+    config.lanes.interactive.concurrency = 1;
+    let host = std::sync::Arc::new(SlowHost::default());
+    let pipeline = fixture
+        .builder()
+        .config(config)
+        .host(host.clone())
+        .build()
+        .await
+        .unwrap();
+    let events = (0..4)
+        .map(|n| {
+            event("web:chat", &n.to_string(), &format!("c{n}"))
+                .direct(true)
+                .text("/now")
+        })
+        .collect();
+    pipeline.ingest(events).await.unwrap();
+    let (a, b) = tokio::join!(pipeline.drain(), pipeline.drain());
+    let dispatched = a.unwrap().dispatched + b.unwrap().dispatched;
+    assert!(dispatched >= 1);
+    assert_eq!(host.most.load(std::sync::atomic::Ordering::SeqCst), 1);
+}

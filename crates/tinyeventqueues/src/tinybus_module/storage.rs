@@ -6,15 +6,21 @@
 //! port for its queues, so queued events survive a restart and live wherever
 //! the host keeps its data (`SQLite`, `MongoDB`, a broker).
 //!
-//! A host that serves no storage (an older host, a bare test broker) leaves
-//! the module on in-process memory. That still runs the contract end to end,
-//! but nothing queued survives the process, so it is logged as an error.
+//! Only a host that serves no storage at all (nobody owns the storage name on
+//! the bus: an older host, a bare test broker) leaves the module on in-process
+//! memory. That still runs the contract end to end, but nothing queued survives
+//! the process, so it is logged as an error. When a storage host *is* present
+//! and connecting to it fails, setup fails: falling back to memory then would
+//! acknowledge events that vanish on restart while durable storage exists, so
+//! the failure is surfaced for the host to retry the load instead.
 
 use std::sync::Arc;
 
 use tinybus::Connection;
 use tinystoragedrivers_core::queue::QueueStore;
-use tinystoragedrivers_core::{DocumentStore, MemoryStorage, Scope, ScopedStorage, StorageBackend};
+use tinystoragedrivers_core::{
+    DocumentStore, MemoryStorage, Scope, ScopedStorage, StorageBackend, StorageError,
+};
 
 use crate::Result;
 
@@ -51,25 +57,35 @@ impl Backing {
 ///
 /// # Errors
 ///
-/// Only when the memory fallback cannot open, which does not happen.
+/// [`crate::Error::Storage`] when the bus cannot say whether a storage host
+/// exists, or a storage host exists but connecting to it or binding the
+/// module's scope fails.
 pub(crate) async fn open(connection: Connection) -> Result<Backing> {
-    match tinystoragedrivers_busproxy::connect_storage(connection).await {
-        Ok(bus) => match bus.for_scope(&tinystoragedrivers_busproxy::module_scope_label()) {
-            Ok(scoped) => {
-                log::info!("[tinyeventqueues] pipeline on host storage (durable)");
-                return Ok(Backing::of(&scoped, true));
-            }
-            Err(error) => log::error!(
-                "[tinyeventqueues] host storage refused the module scope: {error}; \
-                 running on IN-MEMORY storage, queued events are NOT durable"
-            ),
-        },
-        Err(error) => log::error!(
-            "[tinyeventqueues] host serves no storage: {error}; \
+    let host = connection
+        .name_owner(tinystoragedrivers_busproxy::HOST_NAME)
+        .await
+        .map_err(|error| StorageError::unavailable(format!("storage host lookup: {error}")))?;
+    if host.is_none() {
+        log::error!(
+            "[tinyeventqueues] host serves no storage; \
              running on IN-MEMORY storage, queued events are NOT durable"
-        ),
+        );
+        return Backing::memory();
     }
-    Backing::memory()
+    let scoped = connect(connection).await;
+    if let Err(error) = &scoped {
+        log::error!("[tinyeventqueues] host storage present but unusable: {error}");
+    }
+    let scoped = scoped?;
+    log::info!("[tinyeventqueues] pipeline on host storage (durable)");
+    Ok(Backing::of(&scoped, true))
+}
+
+/// The module's scope of the host's storage.
+async fn connect(connection: Connection) -> tinystoragedrivers_core::Result<ScopedStorage> {
+    tinystoragedrivers_busproxy::connect_storage(connection)
+        .await?
+        .for_scope(&tinystoragedrivers_busproxy::module_scope_label())
 }
 
 #[cfg(test)]
