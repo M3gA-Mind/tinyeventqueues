@@ -193,5 +193,3 @@ are in `tinyeventqueues-bus`.
 - Wiring the loaded module to the host's storage through the
   `tinystoragedrivers` storage bus (until then the module runs over in-process
   memory storage).
-- Re-pinning `tinystoragedrivers-core` to a tinyhumansai revision once
-  tinyhumansai/tinystoragedrivers#71 merges.

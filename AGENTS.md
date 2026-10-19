@@ -68,9 +68,9 @@ The pipeline is generic over `Arc<dyn QueueStore>` and `Arc<dyn DocumentStore>`
 from `tinystoragedrivers-core`, plus an injectable `Clock`. Every piece of
 durable state lives in those two stores, so a new `Pipeline` over the same
 storage is a restart; tests simulate restarts exactly that way, on
-`MemoryStorage` with a `ManualClock`. `tinystoragedrivers-core` is pinned to the
-fork branch carrying the queue port until tinyhumansai/tinystoragedrivers#71
-merges; re-pin it to a tinyhumansai revision then.
+`MemoryStorage` with a `ManualClock`. `tinystoragedrivers-core` is a git
+dependency pinned to a tinyhumansai/tinystoragedrivers `rev`; move the pin in
+its own commit.
 
 ### The two-crate split
 
