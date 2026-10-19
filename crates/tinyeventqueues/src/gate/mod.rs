@@ -79,6 +79,12 @@ impl Gate {
         self.buckets.take("classify", "", "", limit, now).await
     }
 
+    /// Take one turn from an instant cadence's per-second budget. Returns
+    /// `false` when the cadence is over budget.
+    pub(crate) async fn turn_budget(&self, key: &str, limit: RateLimit, now: u64) -> Result<bool> {
+        self.buckets.take("cadence", "", key, limit, now).await
+    }
+
     /// Judge `event` under `config` at `now`.
     pub(crate) async fn check(
         &self,

@@ -42,6 +42,10 @@ pub(crate) const COALESCE: &str = "teq.coalesce";
 pub(crate) const HABITUATION: &str = "teq.habituation";
 /// The digest accumulator.
 pub(crate) const DIGEST: &str = "teq.digest";
+/// Turns staged for a cadence tick.
+pub(crate) const STAGED: &str = "teq.staged";
+/// Each cadence's schedule.
+pub(crate) const CADENCE: &str = "teq.cadence";
 
 /// The collections the pipeline uses, with their indexes.
 pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
@@ -55,6 +59,10 @@ pub(crate) fn collection_specs() -> Vec<CollectionSpec> {
         CollectionSpec::new(AMBIENT),
         CollectionSpec::new(HABITUATION),
         CollectionSpec::new(DIGEST),
+        CollectionSpec::new(STAGED)
+            .index(IndexSpec::new("by_due", ["due_ms"]))
+            .index(IndexSpec::new("by_cadence", ["cadence_key"])),
+        CollectionSpec::new(CADENCE),
         CollectionSpec::new(COALESCE)
             .index(IndexSpec::new("by_due", ["due_ms"]))
             .index(IndexSpec::new("by_thread", ["thread_group"])),
