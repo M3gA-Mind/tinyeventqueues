@@ -137,22 +137,20 @@ impl Pipeline {
         for due in self.inner.coalescer.due(now, MAX_FLUSH_THREADS).await? {
             let buffer = &due.found.doc;
             if let Some(first) = buffer.events.first() {
-                let absorbed: Vec<EventRef> =
-                    buffer.absorbed.iter().map(|a| a.event.clone()).collect();
                 let size = Window::of(&running.config, &first.source)
                     .max_events
                     .and_then(|max| usize::try_from(max).ok())
                     .unwrap_or(buffer.events.len())
                     .max(1);
-                let mut chunks = buffer.events.chunks(size).peekable();
-                while let Some(chunk) = chunks.next() {
-                    // The edits folded into the buffer ride with its last turn.
-                    let absorbed: &[EventRef] = if chunks.peek().is_none() {
-                        &absorbed
-                    } else {
-                        &[]
-                    };
-                    self.route(chunk, absorbed, running, now).await?;
+                for chunk in buffer.events.chunks(size) {
+                    // An edit folded into a buffered event rides with it.
+                    let absorbed: Vec<EventRef> = buffer
+                        .absorbed
+                        .iter()
+                        .filter(|a| chunk.iter().any(|e| e.event_id == a.target))
+                        .map(|a| a.event.clone())
+                        .collect();
+                    self.route(chunk, &absorbed, running, now).await?;
                 }
                 flushed += 1;
             }
