@@ -12,8 +12,8 @@ async fn coalescer(fixture: &Fixture) -> Coalescer {
     Coalescer::new(&fixture.docs).unwrap()
 }
 
-fn config() -> CoalesceConfig {
-    CoalesceConfig::default()
+fn config() -> Window {
+    Window::from(&CoalesceConfig::default())
 }
 
 fn ids(due: &Due) -> Vec<String> {

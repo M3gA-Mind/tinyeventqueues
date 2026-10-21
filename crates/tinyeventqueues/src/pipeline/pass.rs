@@ -10,7 +10,7 @@ use tinystoragedrivers_core::queue::Retry;
 use super::{Pipeline, Running};
 use crate::Result;
 use crate::cadence::{self, Cadence, Resolved, Scheduler, Staged};
-use crate::coalesce::{Added, amends};
+use crate::coalesce::{Added, Window, amends};
 use crate::gate::Verdict;
 use crate::ingress::IngressEnvelope;
 use crate::salience::{lane_for, lane_for_class, rule_score};
@@ -92,10 +92,11 @@ impl Pipeline {
                     .await
             }
             Verdict::Pass => {
+                let window = Window::of(config, &event.source);
                 let added = self
                     .inner
                     .coalescer
-                    .add(&event, envelope.ingested_at_ms, &config.coalesce, now)
+                    .add(&event, envelope.ingested_at_ms, &window, now)
                     .await?;
                 self.settle_added(added, now, ttl).await
             }
@@ -128,15 +129,31 @@ impl Pipeline {
 
     /// Flush every due buffer: score it, pick its lane, and enqueue it as a
     /// pending turn with the conversation's ambient context (or spill it to
-    /// the digest). Returns how many buffers flushed.
+    /// the digest). A buffer over its source's `max_events` goes out as
+    /// several turns of at most that many, in order. Returns how many buffers
+    /// flushed.
     pub(super) async fn flush_due(&self, running: &Running, now: u64) -> Result<u64> {
         let mut flushed = 0;
         for due in self.inner.coalescer.due(now, MAX_FLUSH_THREADS).await? {
             let buffer = &due.found.doc;
-            if !buffer.events.is_empty() {
+            if let Some(first) = buffer.events.first() {
                 let absorbed: Vec<EventRef> =
                     buffer.absorbed.iter().map(|a| a.event.clone()).collect();
-                self.route(&buffer.events, &absorbed, running, now).await?;
+                let size = Window::of(&running.config, &first.source)
+                    .max_events
+                    .and_then(|max| usize::try_from(max).ok())
+                    .unwrap_or(buffer.events.len())
+                    .max(1);
+                let mut chunks = buffer.events.chunks(size).peekable();
+                while let Some(chunk) = chunks.next() {
+                    // The edits folded into the buffer ride with its last turn.
+                    let absorbed: &[EventRef] = if chunks.peek().is_none() {
+                        &absorbed
+                    } else {
+                        &[]
+                    };
+                    self.route(chunk, absorbed, running, now).await?;
+                }
                 flushed += 1;
             }
             self.inner.coalescer.remove(&due).await?;
