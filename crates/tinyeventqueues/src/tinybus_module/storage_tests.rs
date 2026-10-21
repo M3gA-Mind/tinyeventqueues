@@ -1,45 +1,41 @@
-//! Tests for opening the module's storage: the host's over the bus, and the
-//! memory fallback.
+//! Tests for opening host-provided storage and refusing missing storage.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use tinyeventqueues_bus::storage::OUTCOMES;
-use tinystoragedrivers_core::{Precondition, Scope, StorageBackend};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use tinybus::Connection;
+use tinybus::broker::Broker;
+use tinybus::transport::memory::MemoryBus;
+use tinystoragedrivers_api::StorageBackend;
+use tinystoragedrivers_busproxy::{PerCallerEndpoint, StorageServer, serve};
+use tinystoragedrivers_types::Scope;
 
 use super::*;
+use crate::ports::ErrorKind;
 use crate::tinybus_module::tests::rig;
 
 #[tokio::test]
-async fn a_host_that_serves_storage_backs_the_pipeline() {
+async fn a_missing_callback_is_refused_even_when_the_global_host_is_serving_storage() {
     let rig = rig(true).await;
     let module = Connection::connect(rig.bus.connect().await.unwrap())
         .await
         .unwrap();
-    let backing = open(module).await.unwrap();
-    assert!(backing.durable);
-    assert!(format!("{backing:?}").contains("durable: true"));
-
-    // A write through the module lands in the host's backend.
-    for spec in tinyeventqueues_bus::storage::collection_specs() {
-        backing.docs.ensure_collection(&spec).await.unwrap();
-    }
-    backing
-        .docs
-        .put(OUTCOMES, "x", serde_json::json!({}), Precondition::None)
-        .await
-        .unwrap();
-    let host = rig.backend.for_scope(&Scope::local()).unwrap();
-    assert!(host.documents().get(OUTCOMES, "x").await.unwrap().is_some());
+    let refused = open(module, None).await;
+    assert!(matches!(
+        refused,
+        Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
+    ));
 }
 
 #[tokio::test]
-async fn a_host_without_storage_leaves_the_pipeline_on_memory() {
+async fn a_host_without_storage_refuses_setup_instead_of_using_memory() {
     let rig = rig(false).await;
     let module = Connection::connect(rig.bus.connect().await.unwrap())
         .await
         .unwrap();
-    let backing = open(module).await.unwrap();
-    assert!(!backing.durable);
+    assert!(open(module, None).await.is_err());
 }
 
 #[tokio::test]
@@ -54,6 +50,42 @@ async fn a_storage_host_that_cannot_be_reached_fails_setup_instead_of_using_memo
     let module = Connection::connect(rig.bus.connect().await.unwrap())
         .await
         .unwrap();
-    let refused = open(module).await;
+    let callback = rig.host.unique_name().unwrap();
+    let refused = open(module, Some(callback.as_str())).await;
     assert!(refused.is_err(), "fell back to memory: {refused:?}");
+}
+
+#[tokio::test]
+async fn an_unadmitted_storage_destination_does_not_fall_back_to_global_storage() {
+    let bus = MemoryBus::new();
+    Broker::new().spawn(bus.clone());
+    let host = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let backend = Arc::new(tinystoragedrivers_testkit::MemoryBackend::new());
+    let providers = Arc::new(AtomicUsize::new(0));
+    let served_backend = Arc::clone(&backend);
+    let provider_calls = Arc::clone(&providers);
+    let endpoint = PerCallerEndpoint::new(move |_sender| {
+        provider_calls.fetch_add(1, Ordering::Relaxed);
+        let storage = served_backend.for_scope(&Scope::new("local").ok()?).ok()?;
+        Some(StorageServer::new(storage))
+    });
+    let _served = serve(&host, Arc::new(endpoint)).await.unwrap();
+    let module = Connection::connect(bus.connect().await.unwrap())
+        .await
+        .unwrap();
+
+    // The ordinary global host is live, but a caller-supplied callback name is
+    // an authority boundary and must be used as-is.
+    let refused = open(module, Some(":1.999999")).await;
+    assert!(matches!(
+        refused,
+        Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
+    ));
+    assert_eq!(
+        providers.load(Ordering::Relaxed),
+        0,
+        "the rejected callback fell through to the global storage provider"
+    );
 }
