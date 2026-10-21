@@ -305,7 +305,7 @@ fn a_source_debounce_is_checked_and_described() {
     })]);
     let mut value = shipped_value();
     value["sources"][0]["coalesce"] =
-        json!({"debounce_ms": 30000, "max_wait_ms": 300000, "max_events": 20});
+        json!({"debounce_ms": 30_000, "max_wait_ms": 300_000, "max_events": 20});
     let config = parse(&value).unwrap();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let schema: Value = serde_json::from_str(

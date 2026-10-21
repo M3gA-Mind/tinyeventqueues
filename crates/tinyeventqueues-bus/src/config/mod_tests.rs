@@ -201,7 +201,7 @@ fn dispatch_defaults_when_absent() {
 fn a_source_may_carry_its_own_debounce() {
     let mut value = minimal();
     value["sources"] = json!([
-        {"match": "x:mentions", "coalesce": {"debounce_ms": 30000, "max_wait_ms": 300000, "max_events": 20}},
+        {"match": "x:mentions", "coalesce": {"debounce_ms": 30_000, "max_wait_ms": 300_000, "max_events": 20}},
         {"match": "x:*", "coalesce": {"max_events": 5}},
         {"match": "*"}
     ]);
