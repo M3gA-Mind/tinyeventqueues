@@ -89,3 +89,16 @@ async fn an_unadmitted_storage_destination_does_not_fall_back_to_global_storage(
         "the rejected callback fell through to the global storage provider"
     );
 }
+
+#[tokio::test]
+async fn an_invalid_storage_destination_is_rejected_before_connecting() {
+    let rig = rig(true).await;
+    let module = Connection::connect(rig.bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let refused = open(module, Some("")).await;
+    assert!(matches!(
+        refused,
+        Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
+    ));
+}
