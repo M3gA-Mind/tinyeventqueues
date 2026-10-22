@@ -9,6 +9,7 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryBus;
+use tinystoragedrivers_api::StorageBackend;
 use tinystoragedrivers_busproxy::{
     PerCallerEndpoint, StorageServer, prepare_storage_host_callbacks, serve_with_host_callbacks,
 };
