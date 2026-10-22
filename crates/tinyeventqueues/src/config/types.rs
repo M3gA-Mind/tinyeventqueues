@@ -65,9 +65,14 @@ impl QueueManifest {
                     queue.name
                 )));
             }
-            if queue.max_attempts == 0 || queue.visibility_ms == 0 {
+            if queue.max_attempts == 0 {
                 return Err(crate::Error::manifest(format!(
-                    "queues[{index}] max_attempts and visibility_ms must be positive"
+                    "queues[{index}].max_attempts must be positive"
+                )));
+            }
+            if queue.visibility_ms == 0 {
+                return Err(crate::Error::manifest(format!(
+                    "queues[{index}].visibility_ms must be positive"
                 )));
             }
         }

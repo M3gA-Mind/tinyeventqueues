@@ -2,12 +2,18 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryBus;
+use tinystoragedrivers_busproxy::{
+    PerCallerEndpoint, StorageServer, prepare_storage_host_callbacks, serve_with_host_callbacks,
+};
+use tinystoragedrivers_testkit::MemoryBackend;
+use tinystoragedrivers_types::Scope;
 use tinyeventqueues::{StatsRequest, StatsResponse, names};
 
 #[tokio::main]
@@ -15,9 +21,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let module = module_argument()?;
     let bus = MemoryBus::new();
     let broker = Broker::new();
-    let broker_task = broker.spawn(bus.clone());
+    let broker_task = broker.clone().spawn(bus.clone());
     let module_host = ModuleHost::new(broker);
-    let info = module_host.load_file(&module)?;
+    let binding = prepare_storage_host_callbacks(&module_host).await?;
+    let backend = Arc::new(MemoryBackend::new());
+    let bound = Arc::clone(&backend);
+    let endpoint = PerCallerEndpoint::new(move |_sender| {
+        let storage = bound.for_scope(&Scope::new("local").ok()?).ok()?;
+        Some(StorageServer::new(storage))
+    });
+    let _served = serve_with_host_callbacks(binding.clone(), Arc::new(endpoint)).await?;
+    let info = module_host
+        .load_file_with_host_callbacks(
+            &module,
+            serde_json::json!({ "storage_callback": binding.unique_name() }),
+            &binding,
+        )
+        .await?;
 
     if info.name != env!("CARGO_PKG_NAME") {
         return Err(io::Error::other(format!(
