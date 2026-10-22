@@ -1,6 +1,7 @@
 //! Loads a built module through the real `TinyBus` dynamic loader.
 
-use std::io;
+use std::fs::OpenOptions;
+use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,13 +10,13 @@ use tinybus::Connection;
 use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryBus;
+use tinyeventqueues::{StatsRequest, StatsResponse, names};
 use tinystoragedrivers_api::StorageBackend;
 use tinystoragedrivers_busproxy::{
     PerCallerEndpoint, StorageServer, prepare_storage_host_callbacks, serve_with_host_callbacks,
 };
 use tinystoragedrivers_testkit::MemoryBackend;
 use tinystoragedrivers_types::Scope;
-use tinyeventqueues::{StatsRequest, StatsResponse, names};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -32,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(StorageServer::new(storage))
     });
     let _served = serve_with_host_callbacks(binding.clone(), Arc::new(endpoint)).await?;
+    write_module_manifest(&module)?;
     let info = module_host
         .load_file_with_host_callbacks(
             &module,
@@ -75,6 +77,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         info.name
     );
     broker_task.abort();
+    Ok(())
+}
+
+fn write_module_manifest(module: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let directory = module.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "module path has no parent directory",
+        )
+    })?;
+    let name = module
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "module filename is not valid UTF-8",
+            )
+        })?;
+    let hash = tinybus::module::sha256_file(module)?;
+    let manifest = directory.join("modules.toml");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(manifest)?;
+    writeln!(file, "\"{name}\" = \"{hash}\"")?;
     Ok(())
 }
 
