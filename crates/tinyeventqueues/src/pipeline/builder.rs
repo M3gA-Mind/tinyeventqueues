@@ -133,9 +133,9 @@ impl PipelineBuilder {
     ///
     /// # Errors
     ///
-    /// [`Error::Manifest`] or [`Error::Config`] naming the offending field,
-    /// [`Error::ConfigFile`] for an unreadable file, or a storage error while
-    /// declaring queues and collections.
+    /// [`crate::Error::Manifest`] or [`crate::Error::Config`] naming the
+    /// offending field, [`crate::Error::ConfigFile`] for an unreadable file,
+    /// or a storage error while declaring queues and collections.
     pub async fn build(self) -> Result<Pipeline> {
         let manifest = match self.manifest {
             Source::Shipped => shipped_manifest()?,
