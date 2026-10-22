@@ -24,7 +24,7 @@ async fn a_missing_callback_is_refused_even_when_the_global_host_is_serving_stor
         .unwrap();
     let refused = open(module, None).await;
     assert!(matches!(
-        refused,
+        &refused,
         Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
     ));
     assert!(refused.unwrap_err().to_string().contains("storage_callback"));
@@ -85,7 +85,7 @@ async fn an_unadmitted_storage_destination_does_not_fall_back_to_global_storage(
     // an authority boundary and must be used as-is.
     let refused = open(module, Some(":1.999999")).await;
     assert!(matches!(
-        refused,
+        &refused,
         Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
     ));
     assert_eq!(
@@ -103,8 +103,9 @@ async fn an_invalid_storage_destination_is_rejected_before_connecting() {
         .unwrap();
     let refused = open(module, Some("")).await;
     assert!(matches!(
-        refused,
+        &refused,
         Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
     ));
+    assert!(refused.unwrap_err().to_string().contains("storage_callback"));
     assert!(refused.unwrap_err().to_string().contains("storage_callback"));
 }

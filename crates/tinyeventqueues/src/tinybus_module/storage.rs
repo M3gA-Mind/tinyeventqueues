@@ -41,7 +41,10 @@ pub(crate) async fn open(connection: Connection, callback: Option<&str>) -> Resu
                     Error::from(
                         StorageError::new(
                             error.kind(),
-                            format!("storage_callback {destination} is unavailable: {error}"),
+                            format!(
+                                "storage_callback {destination} is unavailable: {}",
+                                error.message()
+                            ),
                         )
                         .with_source(error),
                     )
