@@ -42,7 +42,9 @@ impl QueueManifest {
             return Err(crate::Error::manifest("version must be 1"));
         }
         if self.queues.is_empty() {
-            return Err(crate::Error::manifest("at least one queue is required"));
+            return Err(crate::Error::manifest(
+                "queues must contain at least one queue",
+            ));
         }
         let mut names = std::collections::HashSet::new();
         for (index, queue) in self.queues.iter().enumerate() {

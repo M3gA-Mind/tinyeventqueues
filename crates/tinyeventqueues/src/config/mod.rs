@@ -65,9 +65,12 @@ pub fn shipped_pipeline_config() -> Result<PipelineConfig> {
 ///
 /// [`Error::Manifest`] naming the offending field or queue.
 pub fn parse_manifest(text: &str) -> Result<QueueManifest> {
-    let manifest: QueueManifest =
-        serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str(text))
-            .map_err(|error| Error::manifest(format!("{}: {}", error.path(), error.inner())))?;
+    let mut deserializer = serde_json::Deserializer::from_str(text);
+    let manifest: QueueManifest = serde_path_to_error::deserialize(&mut deserializer)
+        .map_err(|error| Error::manifest(format!("{}: {}", error.path(), error.inner())))?;
+    deserializer
+        .end()
+        .map_err(|error| Error::manifest(error.to_string()))?;
     manifest.validate()?;
     Ok(manifest)
 }
