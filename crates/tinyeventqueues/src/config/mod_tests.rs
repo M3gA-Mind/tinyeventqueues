@@ -370,7 +370,9 @@ fn queue_manifest_rejects_trailing_json_values() {
 fn empty_queue_manifests_name_the_queues_field() {
     let mut manifest: Value = serde_json::from_str(SHIPPED_QUEUES_JSON).unwrap();
     manifest["queues"] = json!([]);
-    let error = parse_manifest(&manifest.to_string()).unwrap_err().to_string();
+    let error = parse_manifest(&manifest.to_string())
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("queues"), "{error}");
 }
 
