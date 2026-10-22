@@ -297,3 +297,21 @@ fn a_missing_file_is_reported_with_its_path() {
         Error::Manifest(_)
     ));
 }
+
+#[test]
+fn a_source_debounce_is_checked_and_described() {
+    assert_named(&[("sources[0].coalesce.max_events", |v| {
+        v["sources"][0]["coalesce"] = json!({"max_events": 0});
+    })]);
+    let mut value = shipped_value();
+    value["sources"][0]["coalesce"] =
+        json!({"debounce_ms": 30_000, "max_wait_ms": 300_000, "max_events": 20});
+    let config = parse(&value).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("schemas/pipeline.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let full = serde_json::to_value(config).unwrap();
+    walk(&schema, &schema["$defs"], &full, "");
+}

@@ -85,6 +85,11 @@ In order, first verdict wins:
 A durable debounce buffer keyed by `(conversation_key, thread_key, sender)`.
 A buffer flushes `debounce_ms` after its last event or `max_wait_ms` after its
 first, whichever is earlier. Media and control commands flush immediately.
+A source policy may carry its own `coalesce` (`debounce_ms`, `max_wait_ms`,
+`max_events`): its timings replace the pipeline's for that source's buffers,
+a buffer holding `max_events` flushes at once, and a flush hands at most
+`max_events` events to one turn (a larger buffer goes out as several turns, in
+order).
 Events of different threads are never merged; order within a key is preserved.
 An `edit` amends the pending event it targets, a `delete` retracts it (both
 events end `dropped` / `retracted_by_sender`).

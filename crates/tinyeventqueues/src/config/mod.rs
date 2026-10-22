@@ -197,6 +197,15 @@ pub fn check_values(config: &PipelineConfig) -> Result<()> {
                 "must be -100 to 100",
             ));
         }
+        if source
+            .coalesce
+            .is_some_and(|coalesce| coalesce.max_events == Some(0))
+        {
+            return Err(Error::config(
+                format!("sources[{index}].coalesce.max_events"),
+                "must be at least 1",
+            ));
+        }
     }
     Ok(())
 }
