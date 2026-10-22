@@ -5,31 +5,35 @@
 //!
 //! ```json
 //! {
+//!   "storage_callback": ":1.42",
 //!   "queues":   { "version": 1, "queues": [ ... ] },
 //!   "pipeline": { "version": 1, ... },
 //!   "timer":    { "enabled": true, "min_interval_ms": 100, "max_interval_ms": 5000 }
 //! }
 //! ```
 //!
-//! `queues` is a `queues.json` document and `pipeline` a `pipeline.json`
-//! document, both parsed as strictly as the files are. A host that serves the
-//! module's queues should declare the same manifest it passes here: its queue
-//! port admits an `EnsureQueue` only for the spec it declared.
+//! `storage_callback` is the unique destination of the storage callback
+//! admitted by the host for this module instance. `queues` is a `queues.json`
+//! document and `pipeline` a `pipeline.json` document, both parsed as strictly
+//! as the files are. A host that serves the module's queues should declare the
+//! same manifest it passes here: its queue port admits an `EnsureQueue` only
+//! for the spec it declared.
 
+use crate::config::{
+    QueueManifest, parse_manifest, parse_pipeline_config, shipped_manifest, shipped_pipeline_config,
+};
+use crate::{Error, Result};
 use serde::Deserialize;
 use serde_json::Value;
 use tinyeventqueues_bus::PipelineConfig;
-use tinystoragedrivers_core::queue::QueueManifest;
-
-use crate::config::{
-    parse_manifest, parse_pipeline_config, shipped_manifest, shipped_pipeline_config,
-};
-use crate::{Error, Result};
 
 /// The module configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Settings {
+    /// The host-admitted `TinyBus` callback destination for storage.
+    #[serde(default)]
+    pub(crate) storage_callback: Option<String>,
     /// A `queues.json` document; the shipped one when absent.
     #[serde(default)]
     queues: Option<Value>,

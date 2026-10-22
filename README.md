@@ -34,10 +34,11 @@ or misspelt field is an error naming its JSON path.
 
 | File | What it holds | Schema |
 | --- | --- | --- |
-| [`queues.json`](queues.json) | Every queue the pipeline uses (ingress, the four lanes, dead letters) with `max_attempts`, `dedupe_window_ms` and `visibility_ms` — a tinystoragedrivers `QueueManifest`, applied at construction | `schemas/queues.schema.json` in tinystoragedrivers |
+| [`queues.json`](queues.json) | Every queue the pipeline uses (ingress, the four lanes, dead letters) with `max_attempts`, `dedupe_window_ms` and `visibility_ms` — the owner-local queue manifest, applied at construction | Validated by tinyeventqueues |
 | [`pipeline.json`](pipeline.json) | The pipeline's tunables: which queue plays which role, lane concurrency, per-source ack policy, tombstone TTL, batch size, gate (sender lists, DM/group policy, bot-loop guard, rate limits, ambient buffer) coalescing (debounce, max wait, control prefixes, and a source's own debounce and batch cap in `sources[].coalesce`), salience (weights, keywords, known contacts, lane thresholds, borderline band, habituation), lane backlog limits, cadences and ingestion budgets per lane or source, and the digest | [`schemas/pipeline.schema.json`](schemas/pipeline.schema.json) |
 
-No queue name or queue spec is written in Rust. To add or tune a queue, edit
+Queue names and values live in `queues.json`; Rust defines the owner-local
+manifest type and validates each declaration. To add or tune a queue, edit
 `queues.json`; to route a role to it, edit `pipeline.json`.
 
 ## Usage
@@ -45,10 +46,9 @@ No queue name or queue spec is written in Rust. To add or tune a queue, edit
 ```rust,ignore
 use std::sync::Arc;
 use tinyeventqueues::{EventKind, InboundEvent, Pipeline, Sender};
-use tinystoragedrivers_core::queue::DocumentQueue;
 
-let queues = Arc::new(DocumentQueue::new(storage.documents()));
-let pipeline = Pipeline::builder(queues, Arc::clone(storage.documents()))
+// `storage` is the host's scope-bound v2 Storage bundle.
+let pipeline = Pipeline::builder(Arc::clone(storage.queues()), Arc::clone(storage.documents()))
     .manifest_path("queues.json")
     .config_path("pipeline.json")
     .build()
@@ -112,8 +112,10 @@ cargo run -p tinyeventqueues --example basic
 .github/scripts/check-file-coverage.sh 90 coverage.json   # needs cargo-llvm-cov
 ```
 
-`tinystoragedrivers-core` is a git dependency pinned to a tinyhumansai
-revision (the one that merged the queue port, tinyhumansai/tinystoragedrivers#71).
+The module depends on the `tinystoragedrivers-api` and
+`tinystoragedrivers-types` contracts and the bus proxy, pinned to canonical
+TinyStorageDrivers v2.1.0. Storage engines are selected by the host and are not
+part of the module's library dependency tree.
 
 ## Releasing
 

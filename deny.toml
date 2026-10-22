@@ -49,5 +49,5 @@ deny = []
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# tinystoragedrivers is consumed from git at a pinned tinyhumansai revision.
+# TinyStorageDrivers is pinned to the canonical v2.1.0 source revision.
 allow-git = ["https://github.com/tinyhumansai/tinystoragedrivers"]

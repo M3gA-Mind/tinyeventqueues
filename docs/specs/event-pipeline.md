@@ -143,10 +143,11 @@ puts it back.
 Two editable, strict JSON files at the repository root; unknown fields are
 errors that name the field.
 
-- `queues.json`: a `tinystoragedrivers` `QueueManifest` declaring every queue
+- `queues.json`: the module's owner-local queue manifest declaring every queue
   (ingress, the four lanes, dead letters) with `max_attempts`,
-  `dedupe_window_ms` and `visibility_ms`. The pipeline applies it at
-  construction. No queue name or spec is written in Rust.
+  `dedupe_window_ms` and `visibility_ms`. The pipeline validates and applies
+  it at construction. Queue names and values live in JSON; Rust owns the
+  declaration type and validation rules.
 - `pipeline.json` ([schema](../../schemas/pipeline.schema.json)): the
   pipeline's tunables, referring to manifest queues by name. Every reference
   must be declared, have a `visibility_ms`, and be used by one role only.
@@ -162,13 +163,15 @@ are in `tinyeventqueues-bus`.
 
 ## Loaded module
 
-- Storage: the module connects to the host's `Storage` objects over the
-  storage bus and takes the one scope the host bound it to. Its `teq.*`
-  collections are declared by `tinyeventqueues-bus::storage::storage_schema()`
+- Storage: the module connects through the host-admitted storage callback and
+  takes the one scope the host bound it to. Its `teq.*` collections are
+  declared by `tinyeventqueues-bus::storage::collection_specs()`
   (owner `teq`, module scope), from which the host derives the grant; its
   queues are those `queues.json` declares, served by the host's queue port.
-  With no host storage the module runs on memory and logs an error.
-- Configuration: an optional private blob carries `queues` (a `queues.json`
+  Without the callback destination, setup fails; there is no in-memory
+  fallback.
+- Configuration: the host-provided private blob carries `storage_callback`
+  (the unique name for the admitted storage callback), plus `queues` (a `queues.json`
   document), `pipeline` (a `pipeline.json` document) and `timer` bounds;
   absent fields run the shipped files. The manifest is applied through the
   queue port at setup.

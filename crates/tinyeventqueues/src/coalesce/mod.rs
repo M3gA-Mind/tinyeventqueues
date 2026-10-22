@@ -21,13 +21,14 @@ mod types;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use tinyeventqueues_bus::{CoalesceConfig, EventKind, EventRef, InboundEvent, PipelineConfig};
-use tinystoragedrivers_core::{
-    DocumentStore, ErrorKind, Filter, Key, Precondition, Query, Repo, Sort, Versioned,
+use crate::ports::{
+    DocumentStore, ErrorKind, Filter, Precondition, Query, Sort, Versioned, key_of,
 };
+use tinyeventqueues_bus::{CoalesceConfig, EventKind, EventRef, InboundEvent, PipelineConfig};
 
 use crate::Result;
 use crate::store::COALESCE;
+use crate::store::Repo;
 
 pub(crate) use types::Buffer;
 
@@ -103,7 +104,7 @@ fn flushes_now(event: &InboundEvent, config: &Window) -> bool {
 
 /// The thread a buffer belongs to.
 fn thread_group(event: &InboundEvent) -> Result<String> {
-    Ok(Key::of([
+    Ok(key_of(&[
         event.source.as_str(),
         event.conversation_key.as_str(),
         event.thread_key.as_deref().unwrap_or(""),
@@ -113,7 +114,7 @@ fn thread_group(event: &InboundEvent) -> Result<String> {
 }
 
 fn buffer_id(event: &InboundEvent) -> Result<String> {
-    Ok(Key::of([
+    Ok(key_of(&[
         "buffer",
         event.source.as_str(),
         event.conversation_key.as_str(),
@@ -132,11 +133,11 @@ pub(crate) struct Coalescer {
 }
 
 impl Coalescer {
-    pub(crate) fn new(docs: &Arc<dyn DocumentStore>) -> Result<Self> {
-        Ok(Self {
+    pub(crate) fn new(docs: &Arc<dyn DocumentStore>) -> Self {
+        Self {
             docs: Arc::clone(docs),
-            repo: Repo::new(docs, COALESCE)?,
-        })
+            repo: Repo::new(docs, COALESCE),
+        }
     }
 
     /// Add `event`, which arrived at `arrival_ms`, to its buffer.

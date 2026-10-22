@@ -3,11 +3,12 @@
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
+use crate::config::QueueManifest;
+use crate::ports::{Clock, DocumentStore, QueueStore};
 use tinyeventqueues_bus::PipelineConfig;
-use tinystoragedrivers_core::queue::{QueueManifest, QueueStore};
-use tinystoragedrivers_core::{Clock, DocumentStore};
 
 use super::{Inner, Pipeline, Running};
+use crate::Result;
 use crate::cadence::Scheduler;
 use crate::clock::system_clock;
 use crate::coalesce::Coalescer;
@@ -24,7 +25,6 @@ use crate::observe::{NoopSink, OutcomeSink};
 use crate::salience::Habituation;
 use crate::store::{self, Ledger, Tombstones};
 use crate::turn::{Conversations, Lanes, Threads};
-use crate::{Error, Result};
 
 /// Where a file-backed setting comes from.
 #[derive(Debug, Clone)]
@@ -133,15 +133,15 @@ impl PipelineBuilder {
     ///
     /// # Errors
     ///
-    /// [`Error::Manifest`] or [`Error::Config`] naming the offending field,
-    /// [`Error::ConfigFile`] for an unreadable file, or a storage error while
-    /// declaring queues and collections.
+    /// [`crate::Error::Manifest`] or [`crate::Error::Config`] naming the
+    /// offending field, [`crate::Error::ConfigFile`] for an unreadable file,
+    /// or a storage error while declaring queues and collections.
     pub async fn build(self) -> Result<Pipeline> {
         let manifest = match self.manifest {
             Source::Shipped => shipped_manifest()?,
             Source::Path(path) => load_manifest(path)?,
             Source::Value(manifest) => {
-                manifest.validate().map_err(Error::Manifest)?;
+                manifest.validate()?;
                 manifest
             }
         };
@@ -166,18 +166,18 @@ impl PipelineBuilder {
             ledger.clone(),
             self.consumer.clone(),
         );
-        let gate = Gate::new(&self.docs)?;
-        let ambient = Ambient::new(&self.docs)?;
-        let coalescer = Coalescer::new(&self.docs)?;
-        let conversations = Conversations::new(&self.docs)?;
+        let gate = Gate::new(&self.docs);
+        let ambient = Ambient::new(&self.docs);
+        let coalescer = Coalescer::new(&self.docs);
+        let conversations = Conversations::new(&self.docs);
         let lanes = Lanes::new(
             Arc::clone(&self.queues),
             tombstones.clone(),
             conversations.clone(),
         );
-        let habituation = Habituation::new(&self.docs)?;
-        let digest = Digest::new(&self.docs)?;
-        let scheduler = Scheduler::new(&self.docs)?;
+        let habituation = Habituation::new(&self.docs);
+        let digest = Digest::new(&self.docs);
+        let scheduler = Scheduler::new(&self.docs);
         Ok(Pipeline {
             inner: Arc::new(Inner {
                 queues: self.queues,
@@ -199,7 +199,7 @@ impl PipelineBuilder {
                 digest,
                 scheduler,
                 conversations,
-                threads: Threads::new(&self.docs)?,
+                threads: Threads::new(&self.docs),
                 host: self.host,
                 consumer: self.consumer,
                 pass: tokio::sync::Mutex::new(()),
