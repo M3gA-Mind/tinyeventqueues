@@ -145,8 +145,9 @@ errors that name the field.
 
 - `queues.json`: the module's owner-local queue manifest declaring every queue
   (ingress, the four lanes, dead letters) with `max_attempts`,
-  `dedupe_window_ms` and `visibility_ms`. The pipeline applies it at
-  construction. No queue name or spec is written in Rust.
+  `dedupe_window_ms` and `visibility_ms`. The pipeline validates and applies
+  it at construction. Queue names and values live in JSON; Rust owns the
+  declaration type and validation rules.
 - `pipeline.json` ([schema](../../schemas/pipeline.schema.json)): the
   pipeline's tunables, referring to manifest queues by name. Every reference
   must be declared, have a `visibility_ms`, and be used by one role only.
