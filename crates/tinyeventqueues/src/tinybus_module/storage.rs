@@ -35,6 +35,7 @@ pub(crate) async fn open(connection: Connection, callback: Option<&str>) -> Resu
                     format!("invalid storage_callback {destination:?}: {error}"),
                 ))
             })?;
+            let destination_display = destination.to_string();
             tinystoragedrivers_busproxy::connect_storage_at(connection, destination)
                 .await
                 .map_err(|error| {
@@ -42,7 +43,7 @@ pub(crate) async fn open(connection: Connection, callback: Option<&str>) -> Resu
                         StorageError::new(
                             error.kind(),
                             format!(
-                                "storage_callback {destination} is unavailable: {}",
+                                "storage_callback {destination_display} is unavailable: {}",
                                 error.message()
                             ),
                         )

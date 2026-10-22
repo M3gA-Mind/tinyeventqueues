@@ -8,6 +8,7 @@ use crate::ports::{Clock, DocumentStore, QueueStore};
 use tinyeventqueues_bus::PipelineConfig;
 
 use super::{Inner, Pipeline, Running};
+use crate::Result;
 use crate::cadence::Scheduler;
 use crate::clock::system_clock;
 use crate::coalesce::Coalescer;
@@ -24,7 +25,6 @@ use crate::observe::{NoopSink, OutcomeSink};
 use crate::salience::Habituation;
 use crate::store::{self, Ledger, Tombstones};
 use crate::turn::{Conversations, Lanes, Threads};
-use crate::{Error, Result};
 
 /// Where a file-backed setting comes from.
 #[derive(Debug, Clone)]
