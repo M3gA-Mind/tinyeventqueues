@@ -360,6 +360,21 @@ fn a_missing_file_is_reported_with_its_path() {
 }
 
 #[test]
+fn queue_manifest_rejects_trailing_json_values() {
+    let text = format!("{SHIPPED_QUEUES_JSON}\n{{}}");
+    let error = parse_manifest(&text).unwrap_err().to_string();
+    assert!(error.contains("trailing characters"), "{error}");
+}
+
+#[test]
+fn empty_queue_manifests_name_the_queues_field() {
+    let mut manifest: Value = serde_json::from_str(SHIPPED_QUEUES_JSON).unwrap();
+    manifest["queues"] = json!([]);
+    let error = parse_manifest(&manifest.to_string()).unwrap_err().to_string();
+    assert!(error.contains("queues"), "{error}");
+}
+
+#[test]
 fn a_source_debounce_is_checked_and_described() {
     assert_named(&[("sources[0].coalesce.max_events", |v| {
         v["sources"][0]["coalesce"] = json!({"max_events": 0});
