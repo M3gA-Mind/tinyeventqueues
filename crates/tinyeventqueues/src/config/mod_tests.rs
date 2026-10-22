@@ -297,6 +297,19 @@ fn queue_manifests_reject_invalid_declarations() {
     assert!(manifest.validate().is_err());
 }
 
+#[test]
+fn queue_manifest_validation_names_the_invalid_positive_field() {
+    let mut manifest = shipped_manifest().unwrap();
+    manifest.queues[0].max_attempts = 0;
+    let error = manifest.validate().unwrap_err().to_string();
+    assert!(error.contains("queues[0].max_attempts"), "{error}");
+
+    let mut manifest = shipped_manifest().unwrap();
+    manifest.queues[0].visibility_ms = 0;
+    let error = manifest.validate().unwrap_err().to_string();
+    assert!(error.contains("queues[0].visibility_ms"), "{error}");
+}
+
 #[tokio::test]
 async fn queue_manifest_apply_ensures_every_declared_queue() {
     let fixture = crate::test_support::Fixture::new();
