@@ -1,7 +1,6 @@
 //! Loads a built module through the real `TinyBus` dynamic loader.
 
-use std::fs::OpenOptions;
-use std::io::{self, Write};
+use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -98,11 +97,7 @@ fn write_module_manifest(module: &std::path::Path) -> Result<(), Box<dyn std::er
         })?;
     let hash = tinybus::module::sha256_file(module)?;
     let manifest = directory.join("modules.toml");
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(manifest)?;
-    writeln!(file, "\"{name}\" = \"{hash}\"")?;
+    std::fs::write(manifest, format!("\"{name}\" = \"{hash}\"\n"))?;
     Ok(())
 }
 

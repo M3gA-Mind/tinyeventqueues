@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tinybus::Connection;
 use tinystoragedrivers_api::{DocumentStore, QueueStore, Storage};
+use tinystoragedrivers_types::StorageError;
 
 use crate::{Error, Result};
 
@@ -31,17 +32,25 @@ pub(crate) async fn open(connection: Connection, callback: Option<&str>) -> Resu
         Some(destination) => {
             let destination = tinybus::BusName::new(destination).map_err(|error| {
                 Error::from(tinystoragedrivers_types::StorageError::unavailable(
-                    error.to_string(),
+                    format!("invalid storage_callback {destination:?}: {error}"),
                 ))
             })?;
             tinystoragedrivers_busproxy::connect_storage_at(connection, destination)
                 .await
-                .map_err(Error::from)?
+                .map_err(|error| {
+                    Error::from(
+                        StorageError::new(
+                            error.kind(),
+                            format!("storage_callback {destination} is unavailable: {error}"),
+                        )
+                        .with_source(error),
+                    )
+                })?
         }
         None => {
             return Err(Error::from(
                 tinystoragedrivers_types::StorageError::unavailable(
-                    "host callback destination is required",
+                    "host callback destination is required: set storage_callback in the module configuration",
                 ),
             ));
         }

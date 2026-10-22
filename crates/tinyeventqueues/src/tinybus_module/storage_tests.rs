@@ -27,6 +27,7 @@ async fn a_missing_callback_is_refused_even_when_the_global_host_is_serving_stor
         refused,
         Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
     ));
+    assert!(refused.unwrap_err().to_string().contains("storage_callback"));
 }
 
 #[tokio::test]
@@ -53,6 +54,10 @@ async fn a_storage_host_that_cannot_be_reached_fails_setup_instead_of_using_memo
     let callback = rig.host.unique_name().unwrap();
     let refused = open(module, Some(callback.as_str())).await;
     assert!(refused.is_err(), "fell back to memory: {refused:?}");
+    assert!(refused
+        .unwrap_err()
+        .to_string()
+        .contains("storage_callback"));
 }
 
 #[tokio::test]
@@ -101,4 +106,5 @@ async fn an_invalid_storage_destination_is_rejected_before_connecting() {
         refused,
         Err(crate::Error::Storage(error)) if error.kind() == ErrorKind::Unavailable
     ));
+    assert!(refused.unwrap_err().to_string().contains("storage_callback"));
 }

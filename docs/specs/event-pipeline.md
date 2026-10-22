@@ -143,7 +143,7 @@ puts it back.
 Two editable, strict JSON files at the repository root; unknown fields are
 errors that name the field.
 
-- `queues.json`: a `tinystoragedrivers` `QueueManifest` declaring every queue
+- `queues.json`: the module's owner-local queue manifest declaring every queue
   (ingress, the four lanes, dead letters) with `max_attempts`,
   `dedupe_window_ms` and `visibility_ms`. The pipeline applies it at
   construction. No queue name or spec is written in Rust.

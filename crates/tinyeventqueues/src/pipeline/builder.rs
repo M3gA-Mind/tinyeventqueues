@@ -141,9 +141,7 @@ impl PipelineBuilder {
             Source::Shipped => shipped_manifest()?,
             Source::Path(path) => load_manifest(path)?,
             Source::Value(manifest) => {
-                manifest
-                    .validate()
-                    .map_err(|error| Error::manifest(error.to_string()))?;
+                manifest.validate()?;
                 manifest
             }
         };
