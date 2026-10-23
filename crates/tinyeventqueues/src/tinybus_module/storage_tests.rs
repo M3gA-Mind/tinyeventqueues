@@ -136,7 +136,10 @@ async fn the_shared_storage_service_name_reaches_the_host_serving_it() {
         .await
         .unwrap();
     let opened = open(module, Some(tinystoragedrivers_busproxy::HOST_NAME)).await;
-    assert!(opened.is_ok(), "the shared storage service was refused: {opened:?}");
+    assert!(
+        opened.is_ok(),
+        "the shared storage service was refused: {opened:?}"
+    );
 }
 
 #[tokio::test]
