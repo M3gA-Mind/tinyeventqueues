@@ -36,20 +36,27 @@ pub(crate) async fn open(connection: Connection, callback: Option<&str>) -> Resu
                 ))
             })?;
             let destination_display = destination.to_string();
-            tinystoragedrivers_busproxy::connect_storage_at(connection, destination)
-                .await
-                .map_err(|error| {
-                    Error::from(
-                        StorageError::new(
-                            error.kind(),
-                            format!(
-                                "storage_callback {destination_display} is unavailable: {}",
-                                error.message()
-                            ),
-                        )
-                        .with_source(error),
+            // A host that serves one storage service for every module names
+            // that service instead of a per-instance callback binding. The
+            // name is exact: any other name is used as-is, an absent one still
+            // fails, and so does a service nobody owns.
+            let connected = if destination.as_str() == tinystoragedrivers_busproxy::HOST_NAME {
+                tinystoragedrivers_busproxy::connect_storage(connection).await
+            } else {
+                tinystoragedrivers_busproxy::connect_storage_at(connection, destination).await
+            };
+            connected.map_err(|error| {
+                Error::from(
+                    StorageError::new(
+                        error.kind(),
+                        format!(
+                            "storage_callback {destination_display} is unavailable: {}",
+                            error.message()
+                        ),
                     )
-                })?
+                    .with_source(error),
+                )
+            })?
         }
         None => {
             return Err(Error::from(

@@ -13,7 +13,9 @@
 //! ```
 //!
 //! `storage_callback` is the unique destination of the storage callback
-//! admitted by the host for this module instance. `queues` is a `queues.json`
+//! admitted by the host for this module instance, or the shared storage
+//! service name (`ai.tinyhumans.tinystorage.Storage`) of a host that serves one
+//! storage service for every module. `queues` is a `queues.json`
 //! document and `pipeline` a `pipeline.json` document, both parsed as strictly
 //! as the files are. A host that serves the module's queues should declare the
 //! same manifest it passes here: its queue port admits an `EnsureQueue` only
