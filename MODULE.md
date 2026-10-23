@@ -23,8 +23,10 @@ scope the host bound it to, documents for its `teq.*` state and the queue port
 for the queues `queues.json` declares. `tinyeventqueues-bus` (feature
 `storage`) publishes `collection_specs()` for the module's document state and
 the shipped `queues.json`. The private module configuration must include the
-host-provided `storage_callback` destination; setup fails closed if it is
-missing or unavailable.
+host-provided `storage_callback` destination: the unique name of the callback
+binding admitted for this instance, or `ai.tinyhumans.tinystorage.Storage` for
+a host that serves one storage service for every module. Setup fails closed if
+it is missing or unavailable.
 
 The module takes a private configuration blob:
 `{"storage_callback": ":1.42", "queues": <queues.json>, "pipeline": <pipeline.json>, "timer":

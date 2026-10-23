@@ -25,7 +25,8 @@ both.
   the one scope the host bound the module to: documents for the `teq.*` state
   (declared by `tinyeventqueues_bus::storage::collection_specs()`) and the
   queue port for the manifest's queues. The host-provided `storage_callback`
-  setting names the unique callback binding admitted for this module instance;
+  setting names the unique callback binding admitted for this module instance,
+  or the shared storage service of a host that serves one for every module;
   missing or unusable host storage fails setup rather than starting with an
   ephemeral engine.
 - `host.rs`: `BusHost`, the pipeline's `Host`, calling the host's optional

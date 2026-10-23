@@ -171,7 +171,8 @@ are in `tinyeventqueues-bus`.
   Without the callback destination, setup fails; there is no in-memory
   fallback.
 - Configuration: the host-provided private blob carries `storage_callback`
-  (the unique name for the admitted storage callback), plus `queues` (a `queues.json`
+  (the unique name for the admitted storage callback, or the shared storage
+  service name `ai.tinyhumans.tinystorage.Storage`), plus `queues` (a `queues.json`
   document), `pipeline` (a `pipeline.json` document) and `timer` bounds;
   absent fields run the shipped files. The manifest is applied through the
   queue port at setup.
