@@ -126,3 +126,31 @@ async fn an_invalid_storage_destination_is_rejected_before_connecting() {
             .contains("storage_callback")
     );
 }
+
+#[tokio::test]
+async fn the_shared_storage_service_name_reaches_the_host_serving_it() {
+    // A host that serves one storage service for every module names that
+    // service instead of a per-instance callback binding.
+    let rig = rig(true).await;
+    let module = Connection::connect(rig.bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let opened = open(module, Some(tinystoragedrivers_busproxy::HOST_NAME)).await;
+    assert!(opened.is_ok(), "the shared storage service was refused: {opened:?}");
+}
+
+#[tokio::test]
+async fn the_shared_storage_service_name_fails_setup_when_nobody_serves_it() {
+    let rig = rig(false).await;
+    let module = Connection::connect(rig.bus.connect().await.unwrap())
+        .await
+        .unwrap();
+    let refused = open(module, Some(tinystoragedrivers_busproxy::HOST_NAME)).await;
+    assert!(refused.is_err(), "fell back to memory: {refused:?}");
+    assert!(
+        refused
+            .unwrap_err()
+            .to_string()
+            .contains("storage_callback")
+    );
+}
