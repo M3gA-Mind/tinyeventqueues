@@ -48,10 +48,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Stable v2 storage contracts and pure value types; engine implementations are
 # selected by the host rather than this queue owner.
-tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
-tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-api = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "bf1f0a9" }
+tinystoragedrivers-types = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "bf1f0a9" }
 # Module-side adapters to host-owned storage ports.
-tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "05eaada962decbab33bafa4763d2bd1a67f6b456" }
+tinystoragedrivers-busproxy = { git = "https://github.com/tinyhumansai/tinystoragedrivers", rev = "bf1f0a9" }
 # Module diagnostics; the host installs the logger.
 log = "0.4"
 # The host-callback trait (`Host`) is an async trait object.
